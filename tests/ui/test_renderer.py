@@ -12,9 +12,11 @@ from PySide6.QtGui import (
     QTextCharFormat,
     QTextCursor,
     QTextDocument,
+    QTextDocumentFragment,
 )
 
 from mdmd.core.default_style import DEFAULT_STYLE
+from mdmd.core.document import Document, Link, Paragraph, Text
 from mdmd.core.parser import parse_markdown
 from mdmd.core.style import Style
 from mdmd.ui.document_view import char_format_at
@@ -179,7 +181,7 @@ class TestLinksAndMarkers:
     def test_external_link_is_not_an_anchor_but_keeps_its_address(self, fonts: FontResolver) -> None:
         fmt = format_of(render("[site](https://e.com)", fonts).document, "site")
         assert not fmt.isAnchor()
-        assert fmt.toolTip() == "https://e.com"
+        assert QTextDocumentFragment.fromHtml(fmt.toolTip()).toPlainText() == "https://e.com"
         assert fmt.property(LINK_HREF_PROPERTY) == "https://e.com"
 
     def test_heading_link_is_an_anchor_only_when_the_heading_exists(self, fonts: FontResolver) -> None:
@@ -356,3 +358,22 @@ class TestElementStyles:
         doc = rendered.document
         ids = [char_format_at(doc, i).anchorHref() for i, ch in enumerate(doc.toRawText()) if ch == "￼"]
         assert ids == ["mdmd-note:fn:1", "mdmd-note:cite:1"]
+
+
+class TestUntrustedTooltips:
+    def test_markup_in_a_link_address_is_shown_literally(self, fonts: FontResolver) -> None:
+        # The parser percent-encodes markup in addresses, so build the link directly.
+        href = '"><b>bold</b><a href="https://evil.example">click'
+        document = Document(blocks=(Paragraph((Link(href, (Text("site"),)),)),))
+        rendered = render_document(document, DEFAULT_STYLE, fonts)
+        _alive.append(rendered)
+        tooltip = format_of(rendered.document, "site").toolTip()
+        assert "<b>" not in tooltip
+        assert QTextDocumentFragment.fromHtml(tooltip).toPlainText() == href
+
+    def test_markup_in_image_alt_text_is_shown_literally(self, fonts: FontResolver, tmp_path: Path) -> None:
+        image = QImage(4, 4, QImage.Format.Format_RGB32)
+        image.save(str(tmp_path / "p.png"))
+        doc = render("![<i>alt</i>](p.png)", fonts, base_dir=tmp_path).document
+        tooltip = char_format_at(doc, doc.toRawText().index("￼")).toolTip()
+        assert QTextDocumentFragment.fromHtml(tooltip).toPlainText() == "<i>alt</i>"

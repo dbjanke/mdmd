@@ -1,28 +1,32 @@
-"""The application: owns the settings, themes, and windows, and decides where a file opens."""
+"""The application: keeps track of the windows and decides where a file opens.
+
+Settings and themes come from `SharedSettings`, which keeps them in step with other
+mdmd processes; this class only reacts to their changes.
+"""
 
 from __future__ import annotations
 
 import logging
 import os
-from dataclasses import replace
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, Signal
 
-from mdmd.core.app_settings import clamp_window_size
-from mdmd.core.recent import add_recent, remove_recent
+from mdmd.core.app_settings import AppSettings
+from mdmd.core.settings_changes import appearance_applied, recent_file_forgotten, recent_file_opened, window_resized
 from mdmd.core.settings_draft import SettingsDraft
 from mdmd.core.style import Style
-from mdmd.core.themes import Theme, ThemeLibrary, same_name
+from mdmd.core.themes import Theme, ThemeLibrary
 from mdmd.logs import get_logger, log_event
-from mdmd.storage.markdown_files import FileOpenError, OpenFailure, read_markdown_file
+from mdmd.storage.markdown_files import FileOpenError, OpenFailure, load_document
 from mdmd.storage.settings_store import SettingsStore
 from mdmd.storage.theme_store import ThemeStore
 from mdmd.ui.fonts import FontResolver
 from mdmd.ui.main_window import MainWindow
 from mdmd.ui.prompts import Prompts
 from mdmd.ui.settings_dialog import SettingsDialog
+from mdmd.ui.shared_settings import SharedSettings
 
 _log = get_logger("app")
 _FORGET_ON = (OpenFailure.NOT_FOUND, OpenFailure.IS_DIRECTORY)
@@ -42,29 +46,27 @@ class Application(QObject):
         self, settings_store: SettingsStore, theme_store: ThemeStore, prompts: Prompts, fonts: FontResolver
     ) -> None:
         super().__init__()
-        self._settings_store = settings_store
-        self._theme_store = theme_store
+        self._shared = SharedSettings(settings_store, theme_store, self)
+        self._shared.settings_changed.connect(self._settings_changed)
         self._prompts = prompts
         self._fonts = fonts
-        self._settings = settings_store.load()
-        self._themes = theme_store.load_all()
         self._windows: list[MainWindow] = []
         self._settings_dialog: SettingsDialog | None = None
-        log_event(_log, "started", themes=len(self._themes.user_themes), recent=len(self._settings.recent_files))
+        log_event(_log, "started", themes=len(self.themes.user_themes), recent=len(self.recent_files()))
 
     # -------------------------------------------------------------- what windows and the dialog read
 
     @property
     def style(self) -> Style:
-        return self._settings.style
+        return self._shared.settings.style
 
     @property
     def active_theme(self) -> str | None:
-        return self._settings.active_theme
+        return self._shared.settings.active_theme
 
     @property
     def themes(self) -> ThemeLibrary:
-        return self._themes
+        return self._shared.themes
 
     @property
     def fonts(self) -> FontResolver:
@@ -76,7 +78,7 @@ class Application(QObject):
 
     @property
     def window_size(self) -> tuple[int, int]:
-        return self._settings.window_size
+        return self._shared.settings.window_size
 
     @property
     def windows(self) -> tuple[MainWindow, ...]:
@@ -87,7 +89,7 @@ class Application(QObject):
         return self._settings_dialog
 
     def recent_files(self) -> tuple[str, ...]:
-        return self._settings.recent_files
+        return self._shared.settings.recent_files
 
     # -------------------------------------------------------------- opening files
 
@@ -99,14 +101,6 @@ class Application(QObject):
             title = "Cannot open file" if len(failures) == 1 else "Cannot open files"
             self._prompts.error(parent, title, "\n".join(failures))
         if not self._windows:
-            self.open_launcher()
-
-    def handle_open_request(self, paths: list[str]) -> None:
-        """A second launch asked this instance to open `paths` (or a launcher, when empty)."""
-        log_event(_log, "open_request_received", count=len(paths))
-        if paths:
-            self.start([Path(p) for p in paths])
-        else:
             self.open_launcher()
 
     def open_launcher(self) -> MainWindow:
@@ -121,7 +115,7 @@ class Application(QObject):
 
     def choose_and_open(self, requester: MainWindow) -> None:
         current = requester.document_path
-        recent = self._settings.recent_files
+        recent = self.recent_files()
         start_dir = current.parent if current else Path(recent[0]).parent if recent else Path.home()
         chosen = self._prompts.choose_markdown_file(requester, start_dir)
         if chosen is not None:
@@ -133,19 +127,19 @@ class Application(QObject):
         existing = self._window_showing(absolute)
         if existing is not None:
             _bring_to_front(existing)
-            self._update_recent(add_recent(self._settings.recent_files, str(existing.document_path)))
+            self._shared.change_quietly(recent_file_opened(str(existing.document_path)))
             return None
         try:
-            text = read_markdown_file(absolute)
+            document = load_document(absolute)
         except FileOpenError as error:
             log_event(_log, "open_failed", level=logging.WARNING, reason=error.failure.name)
             if error.failure in _FORGET_ON:
-                self._update_recent(remove_recent(self._settings.recent_files, str(absolute)))
+                self._shared.change_quietly(recent_file_forgotten(str(absolute)))
             return str(error)
         window = requester if requester is not None and requester.is_launcher else self._new_window()
-        window.show_document(absolute, text)
+        window.show_document(absolute, document)
         _bring_to_front(window)
-        self._update_recent(add_recent(self._settings.recent_files, str(absolute)))
+        self._shared.change_quietly(recent_file_opened(str(absolute)))
         return None
 
     def _window_showing(self, path: Path) -> MainWindow | None:
@@ -166,20 +160,14 @@ class Application(QObject):
         self._windows.append(window)
         return window
 
-    def _update_recent(self, recent: tuple[str, ...]) -> None:
-        if recent == self._settings.recent_files:
-            return
-        self._settings = replace(self._settings, recent_files=recent)
-        self._save_quietly()
-        for window in self._windows:
-            window.refresh_recent_files()
-
-    def _save_quietly(self) -> None:
-        """Save settings that are not part of an explicit Apply; failures are logged, not shown."""
-        try:
-            self._settings_store.save(self._settings)
-        except OSError as error:
-            log_event(_log, "settings_save_failed", level=logging.WARNING, error=type(error).__name__)
+    def _settings_changed(self, previous: AppSettings, current: AppSettings) -> None:
+        """Bring every window up to date with settings saved here or in another process."""
+        if current.style != previous.style:
+            for window in self._windows:
+                window.apply_style(current.style)
+        if current.recent_files != previous.recent_files:
+            for window in self._windows:
+                window.refresh_recent_files()
 
     # -------------------------------------------------------------- settings and themes
 
@@ -188,6 +176,7 @@ class Application(QObject):
             dialog = SettingsDialog(self)
             dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
             dialog.finished.connect(self._settings_dialog_finished)
+            self._shared.themes_changed.connect(dialog.refresh_themes)
             self._settings_dialog = dialog
         _bring_to_front(self._settings_dialog)
 
@@ -197,26 +186,16 @@ class Application(QObject):
         self._settings_dialog = None
 
     def apply_settings(self, draft: SettingsDraft) -> None:
-        updated = replace(self._settings, style=draft.style, active_theme=draft.active_theme)
-        self._settings_store.save(updated)  # raises OSError; nothing has changed yet
-        self._settings = updated
-        for window in self._windows:
-            window.apply_style(draft.style)
+        self._shared.change(appearance_applied(draft.style, draft.active_theme))  # raises OSError; nothing changes
         log_event(_log, "settings_applied", windows=len(self._windows))
 
     def save_theme(self, theme: Theme) -> None:
-        self._theme_store.save(theme)
-        self._themes = self._themes.with_theme(theme)
-        log_event(_log, "theme_saved", themes=len(self._themes.user_themes))
+        self._shared.save_theme(theme)
+        log_event(_log, "theme_saved", themes=len(self.themes.user_themes))
 
     def delete_theme(self, name: str) -> None:
-        self._theme_store.delete(name)
-        self._themes = self._themes.without(name)
-        active = self._settings.active_theme
-        if active is not None and same_name(active, name):
-            self._settings = replace(self._settings, active_theme=None)
-            self._save_quietly()
-        log_event(_log, "theme_deleted", themes=len(self._themes.user_themes))
+        self._shared.delete_theme(name)
+        log_event(_log, "theme_deleted", themes=len(self.themes.user_themes))
 
     # -------------------------------------------------------------- window lifecycle
 
@@ -227,9 +206,7 @@ class Application(QObject):
         if window not in self._windows:
             return
         self._windows.remove(window)
-        size = window.size()
-        self._settings = replace(self._settings, window_size=clamp_window_size(size.width(), size.height()))
-        self._save_quietly()
+        self._shared.change_quietly(window_resized(window.size().width(), window.size().height()))
         if not self._windows:
             if self._settings_dialog is not None:
                 self._settings_dialog.close()

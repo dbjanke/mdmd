@@ -9,12 +9,14 @@ from typing import Protocol
 from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
 from PySide6.QtWidgets import QMainWindow, QMenu
 
+from mdmd.core.document import Document
 from mdmd.core.style import Style
 from mdmd.storage.markdown_files import FileOpenError
 from mdmd.ui.document_panel import DocumentPanel
 from mdmd.ui.fonts import FontResolver
 from mdmd.ui.launcher_panel import LauncherPanel
 from mdmd.ui.prompts import Prompts
+from mdmd.ui.untrusted_text import menu_text, tooltip_text
 
 APP_TITLE = "mdmd"
 NO_RECENT_TEXT = "No Recent Files"
@@ -84,9 +86,9 @@ class MainWindow(QMainWindow):
     def launcher(self) -> LauncherPanel | None:
         return self._launcher
 
-    def show_document(self, path: Path, text: str) -> None:
+    def show_document(self, path: Path, document: Document) -> None:
         """Replace the current content (launcher or document) with `path` rendered."""
-        self._document = DocumentPanel(path, text, self._host.style, self._host.fonts, self)
+        self._document = DocumentPanel(path, document, self._host.style, self._host.fonts, self)
         self._launcher = None
         self.setCentralWidget(self._document)  # deletes the previous central widget
         self.setWindowTitle(path.name)
@@ -168,8 +170,8 @@ class MainWindow(QMainWindow):
             placeholder.setEnabled(False)
             return
         for path_text in recent:
-            action = self._recent_menu.addAction(Path(path_text).name)
-            action.setToolTip(path_text)
+            action = self._recent_menu.addAction(menu_text(Path(path_text).name))
+            action.setToolTip(tooltip_text(path_text))
             action.setStatusTip(path_text)
             action.triggered.connect(lambda _checked=False, p=path_text: self._host.open_path(Path(p), self))
 

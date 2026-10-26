@@ -9,11 +9,13 @@ import pytest
 from pytestqt.qtbot import QtBot
 
 from mdmd.core.default_style import DEFAULT_STYLE
+from mdmd.core.parser import DocumentParseError
 from mdmd.core.recent import MAX_RECENT_FILES
 from mdmd.core.settings_draft import SettingsDraft
 from mdmd.core.themes import Theme
+from mdmd.storage import markdown_files
 from mdmd.ui.application import Application
-from tests.ui.conftest import FakePrompts
+from tests.ui.conftest import FakePrompts, needs_permissions, read_only
 
 MakeApp = Callable[[], Application]
 WriteMd = Callable[[str, str], Path]
@@ -66,14 +68,6 @@ class TestStartup:
         assert document is not None
         assert "Heading" in document.view.document().toPlainText()
 
-    def test_open_request_from_second_launch(self, make_app: MakeApp, write_md: WriteMd) -> None:
-        app = make_app()
-        app.start([write_md("a.md", "a")])
-        app.handle_open_request([])
-        assert [w.is_launcher for w in app.windows] == [False, True]
-        app.handle_open_request([str(write_md("b.md", "b"))])
-        assert app.windows[-1].windowTitle() == "b.md"
-
 
 class TestOpening:
     def test_launcher_becomes_the_document_window(self, make_app: MakeApp, write_md: WriteMd) -> None:
@@ -95,7 +89,7 @@ class TestOpening:
         path = write_md("one.md", "1")
         app.start([path])
         app.open_path(path.parent / "." / "one.md", app.windows[0])
-        app.handle_open_request([str(path)])
+        app.open_path(path, app.windows[0])
         assert len(app.windows) == 1
 
     def test_choose_and_open_uses_the_file_chooser(
@@ -209,10 +203,10 @@ class TestSettings:
         assert stored(config_dir)["workingSettings"]["body"]["size"] == 20  # type: ignore[index]
         assert stored(config_dir)["activeTheme"] is None
 
+    @needs_permissions
     def test_failed_save_changes_nothing(self, make_app: MakeApp, config_dir: Path) -> None:
         app = make_app()
-        (config_dir / "settings.json").mkdir()  # a folder where the file should be: cannot be written
-        with pytest.raises(OSError):
+        with read_only(config_dir), pytest.raises(OSError):
             app.apply_settings(SettingsDraft(DEFAULT_STYLE.with_value("body", "size", 20), None))
         assert app.style == DEFAULT_STYLE
 
@@ -310,11 +304,165 @@ class TestEdgeCases:
         app.open_path(link, app.windows[0])
         assert len(app.windows) == 1
 
+    @needs_permissions
     def test_recent_file_save_failure_is_not_shown(
         self, make_app: MakeApp, write_md: WriteMd, config_dir: Path, prompts: FakePrompts
     ) -> None:
-        (config_dir / "settings.json").mkdir()
         app = make_app()
-        app.start([write_md("a.md", "a")])
+        with read_only(config_dir):
+            app.start([write_md("a.md", "a")])
         assert prompts.errors == []
         assert app.recent_files()  # still remembered for this session
+
+
+class TestHostileFiles:
+    """The inputs from the security scan: each must open (or be refused) without taking the app down."""
+
+    @pytest.mark.parametrize(
+        ("name", "text", "expected"),
+        [
+            ("emphasis.md", "*" * 3000 + "deep" + "*" * 3000, "deep"),
+            ("digits.md", "Claim [" + "1" * 5000 + "].\n\n## Sources\n\n1. one", "Claim ["),
+            ("headings.md", "#\n" * 2_000 + "end", "end"),  # allocation speed itself is tested in test_slugs
+        ],
+        ids=["deep-emphasis", "huge-citation-number", "many-identical-headings"],
+    )
+    def test_crafted_documents_open(
+        self, make_app: MakeApp, write_md: WriteMd, prompts: FakePrompts, name: str, text: str, expected: str
+    ) -> None:
+        app = make_app()
+        app.start([write_md(name, text)])
+        assert prompts.errors == []
+        document = app.windows[0].document
+        assert document is not None
+        assert expected in document.view.document().toPlainText()
+
+    def test_unparseable_content_is_reported_and_no_window_is_left_half_built(
+        self, make_app: MakeApp, write_md: WriteMd, prompts: FakePrompts, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def fail(_text: str) -> object:
+            raise DocumentParseError("RecursionError")
+
+        monkeypatch.setattr(markdown_files, "parse_markdown", fail)
+        app = make_app()
+        launcher = app.open_launcher()
+        path = write_md("bad.md", "x")
+        app.open_path(path, launcher)
+        assert prompts.errors == [("Cannot open file", f"{path} could not be displayed.")]
+        assert launcher.is_launcher
+        assert app.recent_files() == ()
+
+
+class TestSeveralProcesses:
+    """Each launch is its own application; two Application objects on one settings folder stand in for two."""
+
+    def test_apply_in_one_restyles_the_others_windows(self, qtbot: QtBot, make_app: MakeApp, write_md: WriteMd) -> None:
+        first, second = make_app(), make_app()
+        second.start([write_md("b.md", "text")])
+        first.apply_settings(SettingsDraft(DEFAULT_STYLE.with_value("body", "size", 20), None))
+        document = second.windows[0].document
+        assert document is not None
+
+        def body_size() -> float:
+            doc = document.view.document()
+            cursor = doc.find("text")
+            cursor.setPosition(cursor.selectionStart() + 1)
+            return cursor.charFormat().fontPointSize()
+
+        qtbot.waitUntil(lambda: body_size() == 20, timeout=3000)
+        assert second.style.number("body", "size") == 20
+
+    def test_recent_files_are_shared_and_never_clobbered(
+        self, qtbot: QtBot, make_app: MakeApp, write_md: WriteMd, config_dir: Path
+    ) -> None:
+        first, second = make_app(), make_app()
+        launcher = second.open_launcher()
+        path = write_md("a.md", "a")
+        first.start([path])
+        assert launcher.launcher is not None
+        qtbot.waitUntil(lambda: launcher.launcher.recent_list.count() == 1, timeout=3000)
+        launcher.close()  # saves the window size from a process that opened nothing
+        assert stored(config_dir)["recentFiles"] == [str(path)]
+
+    def test_a_theme_saved_in_one_is_offered_in_the_other(self, qtbot: QtBot, make_app: MakeApp) -> None:
+        first, second = make_app(), make_app()
+        first.save_theme(Theme("Evening", DEFAULT_STYLE))
+        qtbot.waitUntil(lambda: second.themes.find("Evening") is not None, timeout=3000)
+        first.delete_theme("Evening")
+        qtbot.waitUntil(lambda: second.themes.find("Evening") is None, timeout=3000)
+
+    def test_the_same_file_can_be_open_in_two_processes(self, make_app: MakeApp, write_md: WriteMd) -> None:
+        path = write_md("a.md", "a")
+        first, second = make_app(), make_app()
+        first.start([path])
+        second.start([path])
+        assert len(first.windows) == len(second.windows) == 1
+
+    def test_an_open_settings_dialog_lists_themes_saved_elsewhere(self, qtbot: QtBot, make_app: MakeApp) -> None:
+        first, second = make_app(), make_app()
+        second.show_settings(second.open_launcher())
+        dialog = second.settings_dialog
+        assert dialog is not None
+        first.save_theme(Theme("Evening", DEFAULT_STYLE))
+        qtbot.waitUntil(lambda: dialog.theme_combo.findData("Evening") >= 0, timeout=3000)
+
+    def test_dialog_shows_no_theme_when_another_process_deletes_the_active_one(
+        self, qtbot: QtBot, make_app: MakeApp
+    ) -> None:
+        first, second = make_app(), make_app()
+        first.save_theme(Theme("Evening", DEFAULT_STYLE))
+        qtbot.waitUntil(lambda: second.themes.find("Evening") is not None, timeout=3000)
+        second.apply_settings(SettingsDraft(DEFAULT_STYLE, "Evening"))
+        second.show_settings(second.open_launcher())
+        dialog = second.settings_dialog
+        assert dialog is not None
+        assert dialog.theme_combo.currentText() == "Evening"
+        first.delete_theme("Evening")
+        qtbot.waitUntil(lambda: dialog.theme_combo.currentText() == "No theme", timeout=3000)
+        assert dialog.theme_combo.findData("Evening") < 0
+
+
+class TestOpeningEdges:
+    def test_a_window_whose_file_was_deleted_does_not_block_opening_others(
+        self, make_app: MakeApp, write_md: WriteMd
+    ) -> None:
+        gone, other = write_md("gone.md", "a"), write_md("other.md", "b")
+        app = make_app()
+        app.start([gone])
+        gone.unlink()  # the open window now points at a missing file
+        app.open_path(other, app.windows[0])
+        assert [w.windowTitle() for w in app.windows] == ["gone.md", "other.md"]
+
+
+class TestSettingsDamagedWhileRunning:
+    """Unreadable settings mean Default settings, at start-up and while running alike."""
+
+    def test_windows_fall_back_to_default_and_the_next_save_backs_the_file_up(
+        self, qtbot: QtBot, make_app: MakeApp, write_md: WriteMd, config_dir: Path
+    ) -> None:
+        app = make_app()
+        app.apply_settings(SettingsDraft(DEFAULT_STYLE.with_value("body", "size", 20), None))
+        app.start([write_md("a.md", "text")])
+        document = app.windows[0].document
+        assert document is not None
+
+        def body_size() -> float:
+            doc = document.view.document()
+            cursor = doc.find("text")
+            cursor.setPosition(cursor.selectionStart() + 1)
+            return cursor.charFormat().fontPointSize()
+
+        assert body_size() == 20
+        settings_file = config_dir / "settings.json"
+        replacement = settings_file.with_suffix(".tmp")
+        replacement.write_text("{ a typo")
+        replacement.replace(settings_file)  # how an editor saves
+        qtbot.waitUntil(lambda: body_size() == DEFAULT_STYLE.number("body", "size"), timeout=3000)
+        assert app.style == DEFAULT_STYLE
+        assert settings_file.read_text() == "{ a typo"  # nothing is written until the next save
+
+        app.open_path(write_md("b.md", "b"), app.windows[0])
+        assert (config_dir / "settings.json.bak").read_text() == "{ a typo"
+        saved = stored(config_dir)
+        assert saved["workingSettings"]["body"]["size"] == DEFAULT_STYLE.number("body", "size")  # type: ignore[index]
+        assert saved["recentFiles"][0].endswith("b.md")  # type: ignore[index]

@@ -1,4 +1,4 @@
-"""Recent files, find, zoom, links, stored settings, and the instance message."""
+"""Recent files, find, zoom, links, and stored settings."""
 
 from pathlib import Path
 
@@ -12,7 +12,6 @@ from mdmd.core.app_settings import (
     parse_app_settings,
 )
 from mdmd.core.default_style import DEFAULT_STYLE
-from mdmd.core.instance_message import InstanceMessageError, decode_open_request, encode_open_request
 from mdmd.core.links import heading_fragment, resolve_image_path
 from mdmd.core.recent import MAX_RECENT_FILES, add_recent, parse_recent, remove_recent
 from mdmd.core.search import Match, count_label, find_matches, first_at_or_after, step
@@ -143,17 +142,3 @@ class TestAppSettings:
 
     def test_clamp_window_size(self) -> None:
         assert clamp_window_size(50, 100000) == (200, 20000)
-
-
-class TestInstanceMessage:
-    def test_round_trip(self) -> None:
-        assert decode_open_request(encode_open_request(["/a.md", "/b c.md"])) == ["/a.md", "/b c.md"]
-        assert decode_open_request(encode_open_request([])) == []
-
-    @pytest.mark.parametrize(
-        "data",
-        [b"", b"\xff", b"[]", b'{"version": 2, "open": []}', b'{"version": 1, "open": ["rel.md"]}'],
-    )
-    def test_rejects_bad_messages(self, data: bytes) -> None:
-        with pytest.raises(InstanceMessageError):
-            decode_open_request(data)

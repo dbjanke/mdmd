@@ -16,7 +16,6 @@ from mdmd.storage.theme_store import ThemeStore
 from mdmd.ui.application import Application
 from mdmd.ui.fonts import FontResolver
 from mdmd.ui.prompts import QtPrompts
-from mdmd.ui.single_instance import InstanceServer, send_to_running_instance
 
 _log = get_logger("main")
 
@@ -46,16 +45,10 @@ def main(argv: list[str] | None = None) -> int:
 
     # abspath normalizes '..' without resolving symlinks, so recent files show the path the user gave.
     paths = [os.path.abspath(path) for path in args.files]  # noqa: PTH100
-    if send_to_running_instance(paths):
-        log_event(_log, "handed_to_running_instance", count=len(paths))
-        return 0
 
     directory = config_dir()
     app = Application(SettingsStore(directory), ThemeStore(directory), QtPrompts(), FontResolver())
     app.last_window_closed.connect(qt_app.quit)
-    server = InstanceServer()
-    server.open_requested.connect(app.handle_open_request)
-    server.start()
     app.start([Path(p) for p in paths])
     return qt_app.exec()
 

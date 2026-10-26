@@ -1,3 +1,9 @@
+import time
+
+import pytest
+from markdown_it.token import Token
+
+from mdmd.core import parser as parser_module
 from mdmd.core.document import (
     BlockQuote,
     CellAlignment,
@@ -18,7 +24,7 @@ from mdmd.core.document import (
     Text,
 )
 from mdmd.core.inline_text import plain_text
-from mdmd.core.parser import parse_markdown
+from mdmd.core.parser import MAX_INLINE_DEPTH, DocumentParseError, parse_markdown
 
 
 def only_paragraph(source: str) -> Paragraph:
@@ -164,3 +170,87 @@ def only_blocks_inlines(blocks: tuple[object, ...]) -> list[object]:
 def test_plain_text_covers_every_inline_kind() -> None:
     paragraph = only_paragraph("*a* **b** ~~c~~ `d` [e](x) ![f](y.png) g  \nh[^n]\n\n[^n]: note")
     assert plain_text(paragraph.inlines) == "a b c d e f g h"
+
+
+class TestHostileInput:
+    """Crafted files must render (or fail as a reported error) without hanging or crashing."""
+
+    def test_deep_emphasis_is_flattened_and_keeps_its_text(self) -> None:
+        document = parse_markdown("*" * 3000 + "deep" + "*" * 3000)
+        (paragraph,) = document.blocks
+        assert isinstance(paragraph, Paragraph)
+        assert plain_text(paragraph.inlines) == "deep"
+        assert _inline_depth(paragraph.inlines) <= MAX_INLINE_DEPTH + 1
+
+    def test_deep_links_and_emphasis_are_flattened(self) -> None:
+        document = parse_markdown("*[" * 1500 + "x" + "](u)*" * 1500)
+        (paragraph,) = document.blocks
+        assert isinstance(paragraph, Paragraph)
+        assert _inline_depth(paragraph.inlines) <= MAX_INLINE_DEPTH + 1
+
+    def test_shallow_nesting_is_untouched(self) -> None:
+        paragraph = only_paragraph("***bold italic*** and **[*x*](u)**")
+        assert _inline_depth(paragraph.inlines) == 3
+
+    def test_text_after_a_flattened_run_is_kept_in_order(self) -> None:
+        paragraph = only_paragraph("*" * 100 + "a" + "*" * 100 + " tail")
+        assert plain_text(paragraph.inlines) == "a tail"
+
+    def test_many_identical_headings_parse_quickly(self) -> None:
+        started = time.perf_counter()
+        document = parse_markdown("#\n" * 50_000)
+        assert len(document.blocks) == 50_000
+        assert time.perf_counter() - started < 10  # quadratic allocation took hours here
+
+    def test_any_parser_failure_is_reported_as_a_parse_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def explode(_source: str, _env: object) -> object:
+            raise RecursionError("too deep")
+
+        monkeypatch.setattr(parser_module._MARKDOWN, "parse", explode)
+        with pytest.raises(DocumentParseError):
+            parse_markdown("anything")
+
+
+def _inline_depth(inlines: tuple[object, ...]) -> int:
+    deepest = 0
+    for inline in inlines:
+        children = getattr(inline, "children", None)
+        if children is not None:
+            deepest = max(deepest, 1 + _inline_depth(children))
+    return deepest
+
+
+class TestInlineDepthBoundary:
+    """The cap itself, built from tokens so the nesting depth is exact."""
+
+    @staticmethod
+    def nested(levels: int, open_type: str = "em_open", close_type: str = "em_close") -> list[Token]:
+        tokens = [Token(open_type, "em", 1) for _ in range(levels)]
+        text = Token("text", "", 0)
+        text.content = "core"
+        return [*tokens, text, *(Token(close_type, "em", -1) for _ in range(levels)), _text_token(" after")]
+
+    def test_nesting_up_to_the_cap_is_kept(self) -> None:
+        inlines = parser_module._inlines(self.nested(MAX_INLINE_DEPTH))
+        assert _inline_depth(inlines) == MAX_INLINE_DEPTH
+
+    def test_one_level_past_the_cap_is_flattened(self) -> None:
+        inlines = parser_module._inlines(self.nested(MAX_INLINE_DEPTH + 1))
+        assert _inline_depth(inlines) == MAX_INLINE_DEPTH
+        assert plain_text(inlines) == "core after"
+
+    def test_flattened_links_keep_their_text_and_what_follows(self) -> None:
+        tokens = self.nested(MAX_INLINE_DEPTH)
+        link_open = Token("link_open", "a", 1)
+        link_open.attrs = {"href": "https://e.com"}
+        link = [link_open, _text_token("linked"), Token("link_close", "a", -1)]
+        inner = [*tokens[:MAX_INLINE_DEPTH], *link, *tokens[MAX_INLINE_DEPTH:]]  # a link inside the deepest kept level
+        inlines = parser_module._inlines(inner)
+        assert _inline_depth(inlines) == MAX_INLINE_DEPTH
+        assert plain_text(inlines) == "linkedcore after"
+
+
+def _text_token(content: str) -> Token:
+    token = Token("text", "", 0)
+    token.content = content
+    return token

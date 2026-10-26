@@ -65,6 +65,7 @@ from mdmd.core.style import Alignment, Style
 from mdmd.core.zoom import ZOOM_DEFAULT_PERCENT
 from mdmd.ui.fonts import FontResolver
 from mdmd.ui.text_objects import LINK_HREF_PROPERTY, install_text_objects, note_marker_format
+from mdmd.ui.untrusted_text import tooltip_text
 
 PX_PER_PT = 96 / 72  # Qt lays out block margins and fixed line heights in 96-dpi pixels
 PAGE_MARGIN_PT = 18
@@ -531,7 +532,7 @@ class _Writer:
         link_format = QTextCharFormat(fmt)
         link_format.setForeground(QBrush(QColor(s.text("link", "color"))))
         link_format.setFontUnderline(s.flag("link", "underline"))
-        link_format.setToolTip(link.href)
+        link_format.setToolTip(tooltip_text(link.href))
         link_format.setProperty(LINK_HREF_PROPERTY, link.href)
         fragment = heading_fragment(link.href)
         if fragment is not None and fragment in self._anchors_in_document and not self._options.popup:
@@ -556,7 +557,7 @@ class _Writer:
         image_format.setName(name)
         image_format.setWidth(loaded.width())
         image_format.setHeight(loaded.height())
-        image_format.setToolTip(image.alt)
+        image_format.setToolTip(tooltip_text(image.alt))
         position = self._cursor.position()
         self._cursor.insertImage(image_format)
         self._result.images.append(PlacedImage(position, loaded.size(), ctx.indent * self._doc.indentWidth()))

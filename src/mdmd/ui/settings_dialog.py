@@ -198,6 +198,10 @@ class SettingsDialog(QDialog):
 
     # -------------------------------------------------------------- themes
 
+    def refresh_themes(self) -> None:
+        """Show the current theme list, after a theme was saved or deleted here or in another process."""
+        self._refresh_theme_controls()
+
     def _refresh_theme_controls(self) -> None:
         library = self._host.themes
         status = theme_status(self._draft.style, self._draft.active_theme, library)

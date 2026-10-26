@@ -32,7 +32,8 @@ from mdmd.core.inline_text import plain_text
 
 SOURCE_LIST_HEADINGS = frozenset({"sources", "references", "citations", "notes"})
 CITATION_ID_PREFIX = "cite:"
-_CITATION = re.compile(r"\[(\d+)\]")
+MAX_CITATION_DIGITS = 9  # far beyond any real source list; keeps int() bounded
+_CITATION = re.compile(rf"\[([0-9]{{1,{MAX_CITATION_DIGITS}}})\]")  # ASCII digits only
 
 
 def citation_note_id(number: int) -> str:

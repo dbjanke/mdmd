@@ -10,7 +10,9 @@ from PySide6.QtGui import QColor, QGuiApplication, QImage, QTextCursor
 from pytestqt.qtbot import QtBot
 
 from mdmd.core.default_style import DEFAULT_STYLE
-from mdmd.storage.markdown_files import FileOpenError
+from mdmd.core.parser import DocumentParseError, parse_markdown
+from mdmd.storage import markdown_files
+from mdmd.storage.markdown_files import FileOpenError, OpenFailure
 from mdmd.ui.document_panel import DocumentPanel
 from mdmd.ui.document_view import COPY_LINK_LABEL, CURRENT_MATCH_COLOR, char_format_at
 from mdmd.ui.file_watcher import SETTLE_DELAY_MS
@@ -32,7 +34,7 @@ FOOTNOTES = (
 def make_panel(qtbot: QtBot, fonts: FontResolver, write_md: WriteMd) -> Callable[[str], DocumentPanel]:
     def make(text: str) -> DocumentPanel:
         path = write_md("doc.md", text)
-        panel = DocumentPanel(path, text, DEFAULT_STYLE, fonts)
+        panel = DocumentPanel(path, parse_markdown(text), DEFAULT_STYLE, fonts)
         qtbot.addWidget(panel)
         panel.resize(700, 500)
         panel.show()
@@ -386,3 +388,34 @@ class TestPopupAndReloadDetails:
             assert "Original." in panel.view.document().toPlainText()
         finally:
             panel.path.chmod(0o644)
+
+
+class TestUndisplayableReload:
+    def test_reload_of_undisplayable_content_keeps_the_old_content(
+        self, make_panel: Callable[[str], DocumentPanel], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        panel = make_panel("Still readable.")
+
+        def fail(_text: str) -> object:
+            raise DocumentParseError("RecursionError")
+
+        monkeypatch.setattr(markdown_files, "parse_markdown", fail)
+        with pytest.raises(FileOpenError) as error:
+            panel.reload()
+        assert error.value.failure is OpenFailure.UNDISPLAYABLE
+        assert "Still readable." in panel.view.document().toPlainText()
+
+    def test_automatic_reload_of_undisplayable_content_is_quiet(
+        self, qtbot: QtBot, make_panel: Callable[[str], DocumentPanel], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        panel = make_panel("Original.")
+        attempts: list[str] = []
+
+        def fail(text: str) -> object:
+            attempts.append(text)
+            raise DocumentParseError("RecursionError")
+
+        monkeypatch.setattr(markdown_files, "parse_markdown", fail)
+        panel.path.write_text("Changed.", encoding="utf-8")
+        qtbot.waitUntil(lambda: attempts == ["Changed."], timeout=3000)
+        assert "Original." in panel.view.document().toPlainText()

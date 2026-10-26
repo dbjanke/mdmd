@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from mdmd.ui.untrusted_text import tooltip_text
+
 NO_RECENT_FILES_TEXT = "No recent files"
 MISSING_SUFFIX = " (missing)"
 MISSING_COLOR = "#8a8a8a"
@@ -63,7 +65,7 @@ class LauncherPanel(QWidget):
             missing = not path.exists()
             item = QListWidgetItem(f"{path.name}{MISSING_SUFFIX if missing else ''}\n{path.parent}")
             item.setData(_PATH_ROLE, path_text)
-            item.setToolTip(path_text)
+            item.setToolTip(tooltip_text(path_text))
             if missing:
                 item.setForeground(QColor(MISSING_COLOR))
                 font = QFont(item.font())

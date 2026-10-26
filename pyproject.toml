@@ -61,7 +61,7 @@ ignore = [
 extend-ignore-names = ["intrinsicSize", "drawObject", "*Event", "sizeHint", "createMimeDataFromSelection", "eventFilter"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["PLR2004", "N802"]
+"tests/**" = ["PLR2004", "N802", "PLR0917"]  # fixtures arrive as positional arguments
 
 [tool.mypy]
 python_version = "3.12"

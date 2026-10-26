@@ -43,6 +43,10 @@ from mdmd.core.inline_text import plain_text
 from mdmd.core.slugs import SlugAllocator
 
 FOOTNOTE_ID_PREFIX = "fn:"
+# Emphasis, strike and links nested deeper than this are flattened into their parent: the
+# text is kept, the extra levels of formatting are dropped. Bounds every recursive walk
+# over inline content, which a crafted file could otherwise nest thousands deep.
+MAX_INLINE_DEPTH = 32
 _TASK_CHECKBOX_CLASS = "task-list-item-checkbox"
 _TASK_CHECKED_MARK = 'checked="checked"'
 _ALIGNMENTS = {
@@ -71,11 +75,19 @@ def _make_markdown_it() -> MarkdownIt:
 _MARKDOWN = _make_markdown_it()
 
 
+class DocumentParseError(Exception):
+    """The text could not be turned into a document. The text is untrusted, so this is reported, never fatal."""
+
+
 def parse_markdown(source: str) -> Document:
-    tokens = _MARKDOWN.parse(source, {})
-    builder = _BlockBuilder(tokens)
-    blocks, notes = builder.build()
-    return link_citations(Document(blocks=blocks, notes=notes))
+    """Raises DocumentParseError if the text cannot be displayed."""
+    try:
+        tokens = _MARKDOWN.parse(source, {})
+        builder = _BlockBuilder(tokens)
+        blocks, notes = builder.build()
+        return link_citations(Document(blocks=blocks, notes=notes))
+    except Exception as error:
+        raise DocumentParseError(type(error).__name__) from error
 
 
 def footnote_note_id(footnote_index: int) -> str:
@@ -213,14 +225,27 @@ def _inlines(tokens: Sequence[Token]) -> tuple[Inline, ...]:
     return result
 
 
-def _inline_run(tokens: Sequence[Token], pos: int, close_type: str | None) -> tuple[tuple[Inline, ...], int]:
-    """Collect inlines from `pos` up to `close_type` (or the end). Returns them and the position after."""
+def _inline_run(
+    tokens: Sequence[Token], pos: int, close_type: str | None, depth: int = 0
+) -> tuple[tuple[Inline, ...], int]:
+    """Collect inlines from `pos` up to `close_type` (or the end). Returns them and the position after.
+
+    At MAX_INLINE_DEPTH, further containers are flattened: their open and matching close
+    tokens are skipped and their content joins this run.
+    """
     result: list[Inline] = []
+    flattened_closes: list[str] = []  # close types of containers flattened into this run, innermost last
     while pos < len(tokens):
         token = tokens[pos]
         pos += 1
+        if flattened_closes and token.type == flattened_closes[-1]:
+            flattened_closes.pop()
+            continue
         if token.type == close_type:
             break
+        if depth >= MAX_INLINE_DEPTH and (token.type == "link_open" or token.type in _INLINE_CONTAINERS):
+            flattened_closes.append("link_close" if token.type == "link_open" else _INLINE_CONTAINERS[token.type][0])
+            continue
         match token.type:
             case "text" | "html_inline":
                 result.append(Text(token.content))
@@ -231,7 +256,7 @@ def _inline_run(tokens: Sequence[Token], pos: int, close_type: str | None) -> tu
             case "code_inline":
                 result.append(InlineCode(token.content))
             case "link_open":
-                children, pos = _inline_run(tokens, pos, "link_close")
+                children, pos = _inline_run(tokens, pos, "link_close", depth + 1)
                 result.append(Link(href=str(token.attrs.get("href", "")), children=children))
             case "image":
                 result.append(Image(src=str(token.attrs.get("src", "")), alt=token.content))
@@ -240,7 +265,7 @@ def _inline_run(tokens: Sequence[Token], pos: int, close_type: str | None) -> tu
                 result.append(NoteRef(note_id=footnote_note_id(index), label=str(index + 1)))
             case kind if kind in _INLINE_CONTAINERS:
                 close, container = _INLINE_CONTAINERS[kind]
-                children, pos = _inline_run(tokens, pos, close)
+                children, pos = _inline_run(tokens, pos, close, depth + 1)
                 result.append(container(children))
             case _:
                 # footnote_anchor and other tokens with no visual form.

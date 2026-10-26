@@ -38,8 +38,8 @@ uv tool install .
 mdmd notes.md
 ```
 
-If mdmd is already running, running it again opens the files in the running
-instance.
+Each launch is its own mdmd process. All of them share your settings, themes, and
+recent files, and applying settings in one restyles the windows of all of them.
 
 ## Using mdmd
 
@@ -56,7 +56,7 @@ instance.
 Click a footnote marker to see the note. Click elsewhere or press Esc to close it.
 
 In Settings, pick an element on the left, change its properties, and watch the
-preview. Apply or OK restyles every open window; Cancel discards changes made
+preview. Apply or OK restyles every open window, in every running mdmd; Cancel discards changes made
 since the last Apply. The built-in Default theme cannot be changed, so choosing it
 always returns to the original look.
 
@@ -98,3 +98,7 @@ uv run mypy                  # type check (strict)
 ```
 
 `DESIGN.md` describes the intended behavior. `CLAUDE.md` describes how the code is organized.
+
+## License
+
+MIT. See `LICENSE.md`.

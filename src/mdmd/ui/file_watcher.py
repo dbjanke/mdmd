@@ -1,4 +1,4 @@
-"""Noticing when the displayed file changes on disk.
+"""Noticing when a file (an open document, the settings file) or a folder (the themes) changes on disk.
 
 Editors often save by writing a new file and renaming it over the old one, which
 drops a plain file watch. So the folder is watched too, and every signal is
@@ -23,7 +23,7 @@ def snapshot(path: Path) -> Snapshot:
 
 
 class FileWatcher(QObject):
-    changed = Signal()  # the file exists and differs from the last accepted version
+    changed = Signal()  # the path exists and differs from when it was last reported or accepted
 
     def __init__(self, path: Path, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -39,7 +39,7 @@ class FileWatcher(QObject):
         self._rewatch()
 
     def accept_current(self) -> None:
-        """Record the file as it is now, after it has been (re)loaded."""
+        """Record the path as it is now, so a change this process made itself is not reported."""
         self._last = snapshot(self._path)
 
     def _rewatch(self) -> None:
@@ -55,4 +55,5 @@ class FileWatcher(QObject):
         self._rewatch()
         current = snapshot(self._path)
         if current is not None and current != self._last:
+            self._last = current
             self.changed.emit()

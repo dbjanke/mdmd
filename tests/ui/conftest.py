@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -84,3 +86,16 @@ def write_md(tmp_path: Path) -> Callable[[str, str], Path]:
         return path
 
     return write
+
+
+needs_permissions = pytest.mark.skipif(os.geteuid() == 0, reason="root ignores file permissions")
+
+
+@contextmanager
+def read_only(directory: Path) -> Iterator[None]:
+    """Nothing can be created, replaced, or removed in `directory` while this is held."""
+    directory.chmod(0o500)
+    try:
+        yield
+    finally:
+        directory.chmod(0o700)

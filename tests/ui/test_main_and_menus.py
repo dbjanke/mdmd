@@ -1,6 +1,5 @@
 """The command-line entry point and the window menus."""
 
-import uuid
 from collections.abc import Callable
 from pathlib import Path
 
@@ -8,10 +7,8 @@ import pytest
 from PySide6.QtWidgets import QApplication
 
 from mdmd import __main__ as entry
-from mdmd.ui import single_instance
 from mdmd.ui.application import Application
 from mdmd.ui.main_window import NO_RECENT_TEXT, MainWindow
-from mdmd.ui.single_instance import send_to_running_instance
 from tests.ui.conftest import FakePrompts
 
 MakeApp = Callable[[], Application]
@@ -28,15 +25,6 @@ def actions_by_text(window: MainWindow) -> dict[str, object]:
 
 
 class TestEntryPoint:
-    def test_files_are_handed_to_a_running_instance(
-        self, qapp: QApplication, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
-        sent: list[list[str]] = []
-        monkeypatch.setattr(entry, "send_to_running_instance", lambda paths: sent.append(paths) or True)
-        monkeypatch.chdir(tmp_path)
-        assert entry.main(["notes.md", "sub/../other.md"]) == 0
-        assert sent == [[str(tmp_path / "notes.md"), str(tmp_path / "other.md")]]
-
     def test_help_exits_cleanly(self, capsys: pytest.CaptureFixture[str]) -> None:
         with pytest.raises(SystemExit) as exit_info:
             entry.main(["--help"])
@@ -111,12 +99,11 @@ class TestMenus:
 
 
 class TestFullStart:
-    def test_first_instance_listens_and_opens_files(
+    def test_each_launch_opens_its_files_in_its_own_application(
         self, qapp: QApplication, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        doc = tmp_path / "doc.md"
-        doc.write_text("# Hello")
-        name = f"mdmd-test-{uuid.uuid4().hex}"
+        (tmp_path / "notes.md").write_text("# Notes")
+        (tmp_path / "other.md").write_text("# Other")
         apps: list[Application] = []
         real_application = entry.Application
 
@@ -126,17 +113,10 @@ class TestFullStart:
             return app
 
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-        monkeypatch.setattr(single_instance, "socket_path", lambda: name)
         monkeypatch.setattr(entry, "Application", recording_application)
-        listening: list[bool] = []
-
-        def run_event_loop(_self: QApplication) -> int:
-            listening.append(send_to_running_instance([], name=name))
-            return 0
-
-        monkeypatch.setattr(QApplication, "exec", run_event_loop)
-        assert entry.main([str(doc)]) == 0
-        assert listening == [True]
+        monkeypatch.setattr(QApplication, "exec", lambda _self: 0)
+        monkeypatch.chdir(tmp_path)
+        assert entry.main(["notes.md", "sub/../other.md"]) == 0
         (app,) = apps
-        assert [w.windowTitle() for w in app.windows] == ["doc.md"]
+        assert [w.document_path for w in app.windows] == [tmp_path / "notes.md", tmp_path / "other.md"]
         app.quit()

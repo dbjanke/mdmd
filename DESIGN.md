@@ -97,7 +97,7 @@ The list holds up to 10 absolute paths, most recent first, without duplicates. A
 
 ### Supported Markdown
 
-The renderer supports CommonMark plus these GitHub-style extensions: tables with column alignment, strikethrough, task lists, autolinks, and footnotes. This covers headings (ATX and setext), paragraphs, hard line breaks, emphasis, strong text, inline code, fenced and indented code blocks, nested block quotes, nested ordered and unordered lists, horizontal rules, links, and images. Code blocks are monospace with no syntax highlighting. Task list boxes display checked or unchecked and cannot be toggled. Raw HTML is not interpreted and appears as literal text. YAML front matter at the top of a file is not displayed.
+The renderer supports CommonMark plus these GitHub-style extensions: tables with column alignment, strikethrough, task lists, autolinks, and footnotes. This covers headings (ATX and setext), paragraphs, hard line breaks, emphasis, strong text, inline code, fenced and indented code blocks, nested block quotes, nested ordered and unordered lists, horizontal rules, links, and images. Code blocks are monospace with no syntax highlighting. Task list boxes display checked or unchecked and cannot be toggled. Raw HTML is not interpreted and appears as literal text. YAML front matter at the top of a file is not displayed. Emphasis, strong text, strikethrough, and links nested more than 32 levels inside one another keep their text, but the levels past 32 lose their formatting.
 
 ### Footnotes
 
@@ -129,7 +129,7 @@ The first line shows the literal text `[^missing]` with no marker. The unused de
 
 ### Citations
 
-Some documents, such as research write-ups, cite sources with bracketed numbers instead of footnotes. When a document ends with a heading named Sources, References, Citations, or Notes (ignoring case) followed directly by a numbered list, every `[N]` in the text whose N is a number in that list is drawn as a footnote marker showing N. Clicking it opens a popup showing list item N. The source list itself stays visible where it is. The brackets may be escaped in the source (`\[3\]`), which displays the same way.
+Some documents, such as research write-ups, cite sources with bracketed numbers instead of footnotes. When a document ends with a heading named Sources, References, Citations, or Notes (ignoring case) followed directly by a numbered list, every `[N]` in the text whose N is a number in that list, written with the digits 0 to 9, is drawn as a footnote marker showing N. Clicking it opens a popup showing list item N. The source list itself stays visible where it is. The brackets may be escaped in the source (`\[3\]`), which displays the same way.
 
 ```markdown
 Reviewers praise its voice.\[1\]\[2\]
@@ -140,13 +140,13 @@ Reviewers praise its voice.\[1\]\[2\]
 2. [Help Wanted](https://example.com/help)
 ```
 
-The text shows markers 1 and 2. Degraded cases: a number outside the list (`[7]` with a two-item list) stays literal text. `[N]` inside inline code or link text stays literal. Without a matching heading directly before a closing numbered list, no citations are recognized. A document may use both footnotes and citations.
+The text shows markers 1 and 2. Degraded cases: a number outside the list (`[7]` with a two-item list), a number of more than nine digits, or one written with other digits (such as Arabic-Indic or full-width digits) stays literal text. `[N]` inside inline code or link text stays literal. Without a matching heading directly before a closing numbered list, no citations are recognized. A document may use both footnotes and citations.
 
 ## UI Description
 
 ### Startup
 
-Running `mdmd` with no argument shows the launcher window. Running `mdmd <path>` opens a document window on that file with no launcher. Several paths open one window each. Launching mdmd while it is already running opens the new window in the running instance. The application exits when its last launcher or document window closes; an open Settings dialog closes with it and does not keep the application running.
+Running `mdmd` with no argument shows the launcher window. Running `mdmd <path>` opens a document window on that file with no launcher. Several paths open one window each. Every launch starts a separate instance of the application; launches never hand files to an instance that is already running. All instances share the stored settings, themes, recent files, and window size: a change saved by one instance is never lost to another saving at the same time, and it reaches the windows of every running instance without a restart. An instance exits when its last launcher or document window closes; an open Settings dialog closes with it and does not keep it running.
 
 ### Launcher window
 
@@ -163,7 +163,7 @@ The window title is the file name. The content is the rendered file, scrolled to
 | View | Zoom In (Ctrl++), Zoom Out (Ctrl+-), Reset Zoom (Ctrl+0) |
 | Help | About mdmd |
 
-Open... from a document window opens the chosen file in a new window. If the chosen file is already open in a window, that window is brought to the front instead. Reload re-reads the file and keeps the scroll position as closely as the new content allows. Each window remembers its size on close, and new windows open at the most recently stored size.
+Open... from a document window opens the chosen file in a new window. If the chosen file is already open in a window of the same instance, that window is brought to the front instead. Another instance may have the same file open in its own window. Reload re-reads the file and keeps the scroll position as closely as the new content allows. Each window remembers its size on close, and new windows open at the most recently stored size.
 
 ### Links and images
 
@@ -181,7 +181,7 @@ Ctrl+F or Edit > Find... shows a find bar at the bottom of the document window w
 
 ### Settings dialog
 
-Settings... opens one dialog at a time, from any window. It has four areas.
+Settings... opens one dialog at a time per instance, from any of its windows. A theme saved or deleted in another instance appears in, or disappears from, an open dialog's drop-down right away. It has four areas.
 
 Theme controls at the top: a drop-down listing Default and the saved themes, a Save as Theme button, and a Delete Theme button. The drop-down shows the active theme, with "(modified)" appended when the working values differ from it. When no theme is active it shows "No theme".
 
@@ -191,7 +191,7 @@ Property controls on the right: a font family chooser (for the table, with a "Sa
 
 A live preview pane, showing a built-in sample document that contains every element: all six heading levels, body text, a link, inline code, a code block, a block quote, ordered, unordered, and task lists, a table, a horizontal rule, and a footnote marker with a sample popup. The preview updates as each control changes. The open document windows change only when Apply or OK is pressed.
 
-Buttons: Apply saves the working values and updates every open window. OK does the same and closes the dialog. Cancel, or closing the dialog, discards changes made since the last Apply.
+Buttons: Apply saves the working values and updates every open window, in every running instance. OK does the same and closes the dialog. Cancel, or closing the dialog, discards changes made since the last Apply.
 
 Selecting a theme in the drop-down loads all its values into the dialog; selecting Default returns to the initial values. This does not take effect in the windows until Apply or OK. Save as Theme asks for a name. A name matching an existing theme, ignoring case, asks whether to overwrite it, and an invalid name is refused with a message. The theme is saved immediately and becomes the active theme. Delete Theme, after a confirmation, removes the active user theme immediately. The dialog's values are unchanged and the active theme becomes none. Delete Theme is unavailable for the Default theme and when no theme is active. The Default theme cannot be deleted or overwritten. Saving or deleting a theme that cannot be written shows an error and changes nothing.
 
@@ -205,15 +205,17 @@ Zoom: View > Zoom scales all text and spacing in that window by steps of 10 perc
 
 A file given on the command line that does not exist, is a directory, or cannot be read shows an error message naming the path. If no other document window is open, the launcher window appears afterward so the application is never left without a window. When several paths are given, the failures are reported and the readable files still open.
 
-A file larger than 20 MB is refused with an error naming the path. A file that is not valid UTF-8 is displayed with undecodable bytes replaced by a replacement character. The file extension is not checked, so any readable file opens as Markdown.
+A file larger than 20 MB is refused with an error naming the path. A file whose content cannot be displayed for any reason is refused the same way ("could not be displayed"); no window is left half-opened, and the application keeps running. A file that is not valid UTF-8 is displayed with undecodable bytes replaced by a replacement character. The file extension is not checked, so any readable file opens as Markdown.
 
 Reload on a file that has been deleted or become unreadable shows an error and leaves the displayed content in place. Opening a recent file that no longer exists or is now a folder shows an error and removes it from the recent files.
 
 A missing or unreadable image shows its alt text in place of the image and does not interrupt rendering. A footnote reference with no definition shows as literal text.
 
-If the stored settings cannot be parsed, mdmd starts with Default settings. The unreadable file is left untouched until the next save, when it is first renamed with a .bak suffix. Stored themes are unaffected. A stored theme that cannot be parsed, or whose name is invalid, is skipped and left untouched. An invalid value for a single property, such as an unparseable color or an out-of-range size, falls back to the Default value for that property only, and the rest of the file is honored. A stored font family that is not installed renders with the Default font for that element, and the stored value is kept. A stored recent files list that cannot be parsed is treated as empty. An invalid stored window size falls back to 900 by 700.
+If the stored settings cannot be parsed, mdmd starts with Default settings. The same applies while running: if the stored settings become unreadable, every open window switches to the Default settings. The unreadable file is left untouched until the next save, when it is first renamed with a .bak suffix. Stored themes are unaffected. A stored theme that cannot be parsed, or whose name is invalid, is skipped and left untouched. An invalid value for a single property, such as an unparseable color or an out-of-range size, falls back to the Default value for that property only, and the rest of the file is honored. A stored font family that is not installed renders with the Default font for that element, and the stored value is kept. A stored recent files list that cannot be parsed is treated as empty. An invalid stored window size falls back to 900 by 700.
 
-If settings cannot be written when Apply or OK is pressed, the dialog stays open and shows an error. The windows keep their previous appearance.
+If settings cannot be written when Apply or OK is pressed, the dialog stays open and shows an error. The windows keep their previous appearance. If recent files or the window size cannot be written, no error is shown; the change applies until the application exits and is not stored.
+
+Text that comes from outside the application, such as file names and paths, link addresses, image alt text, and theme names, is always shown literally in messages, tooltips, menus, and lists. It is never interpreted as formatting, links, or keyboard shortcuts, whatever characters it contains.
 
 ## Version and Scope
 

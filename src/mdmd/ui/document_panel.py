@@ -9,11 +9,10 @@ from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from mdmd.core.cascade import popup_style
 from mdmd.core.document import Document
-from mdmd.core.parser import parse_markdown
 from mdmd.core.style import Style
 from mdmd.core.zoom import ZOOM_DEFAULT_PERCENT, zoom_in, zoom_out
 from mdmd.logs import get_logger, log_event
-from mdmd.storage.markdown_files import FileOpenError, read_markdown_file
+from mdmd.storage.markdown_files import FileOpenError, load_document
 from mdmd.ui.document_view import DocumentView
 from mdmd.ui.file_watcher import FileWatcher
 from mdmd.ui.find_bar import FindBar
@@ -34,13 +33,15 @@ class ScrollKeep(Enum):
 
 
 class DocumentPanel(QWidget):
-    def __init__(self, path: Path, text: str, style: Style, fonts: FontResolver, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, path: Path, document: Document, style: Style, fonts: FontResolver, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self._path = path
         self._style = style
         self._fonts = fonts
         self._zoom = ZOOM_DEFAULT_PERCENT
-        self._document = parse_markdown(text)
+        self._document = document
         self._view = DocumentView(self)
         self._view.note_activated.connect(self._show_note)
         self._find_bar = FindBar(self)
@@ -81,8 +82,7 @@ class DocumentPanel(QWidget):
 
     def reload(self) -> None:
         """Re-read the file, keeping the scroll position. Raises FileOpenError and keeps the content on failure."""
-        text = read_markdown_file(self._path)
-        self._document = parse_markdown(text)
+        self._document = load_document(self._path)
         self._watcher.accept_current()
         self._render(ScrollKeep.OFFSET)
         log_event(_log, "document_reloaded", blocks=len(self._document.blocks))

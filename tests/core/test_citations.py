@@ -1,3 +1,5 @@
+import pytest
+
 from mdmd.core.document import Emphasis, Link, NoteRef, Paragraph, Text
 from mdmd.core.parser import parse_markdown
 
@@ -73,3 +75,21 @@ def test_citations_in_nested_blocks_are_linked() -> None:
 def test_citations_inside_footnotes_are_linked() -> None:
     document = parse_markdown("Claim.[^n]\n\n[^n]: See [2]." + SOURCES)
     assert "NoteRef(note_id='cite:2'" in str(document.notes["fn:1"])
+
+
+@pytest.mark.parametrize(
+    "citation",
+    [
+        "[" + "1" * 5000 + "]",  # past Python's int() digit limit
+        "[1234567890]",  # more digits than any citation needs
+        "[\u0661]",  # ARABIC-INDIC DIGIT ONE: not an ASCII digit
+        "[\uff11]",  # FULLWIDTH DIGIT ONE
+    ],
+)
+def test_unusual_digit_runs_stay_literal(citation: str) -> None:
+    assert body_inlines(f"Claim {citation}." + SOURCES) == (Text(f"Claim {citation}."),)
+
+
+def test_longest_allowed_citation_number_still_links() -> None:
+    inlines = body_inlines("Claim [123456789].\n\n## Sources\n\n123456789. Far")
+    assert inlines[1] == NoteRef("cite:123456789", "123456789")

@@ -18,7 +18,7 @@ from mdmd.ui.document_view import char_format_at
 from mdmd.ui.footnote_popup import FootnotePopup
 from mdmd.ui.property_editors import ColorEditor, FontEditor, NumberEditor
 from mdmd.ui.settings_dialog import SettingsDialog, sample_document
-from tests.ui.conftest import FakePrompts
+from tests.ui.conftest import FakePrompts, needs_permissions, read_only
 
 MakeApp = Callable[[], Application]
 
@@ -108,11 +108,12 @@ class TestButtons:
         dialog.reject()
         assert app.style == DEFAULT_STYLE
 
+    @needs_permissions
     def test_failed_apply_reports_and_stays_open(
         self, dialog: SettingsDialog, app: Application, config_dir: Path, prompts: FakePrompts
     ) -> None:
-        (config_dir / "settings.json").mkdir()
-        assert not dialog.apply()
+        with read_only(config_dir):
+            assert not dialog.apply()
         assert prompts.errors[0][0] == "Cannot save settings"
         assert dialog.isVisible()
         assert app.style == DEFAULT_STYLE
@@ -213,12 +214,13 @@ class TestDialogEdges:
         assert app.themes.user_themes == ()
         assert dialog.draft.active_theme == "Default"
 
+    @needs_permissions
     def test_theme_that_cannot_be_written_shows_an_error(
         self, dialog: SettingsDialog, app: Application, config_dir: Path, prompts: FakePrompts
     ) -> None:
-        (config_dir / "themes").write_text("a file where the folder should be")
         prompts.text_answers = ["Evening"]
-        dialog.save_theme_button.click()
+        with read_only(config_dir / "themes"):
+            dialog.save_theme_button.click()
         assert prompts.errors[-1][0] == "Cannot save theme"
         assert app.themes.find("Evening") is None
         assert dialog.draft.active_theme == "Default"
