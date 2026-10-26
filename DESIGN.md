@@ -1,7 +1,5 @@
 # mdmd Design Document
 
-Oct 26, 2026
-
 ## Overview
 
 mdmd is a local, single-user desktop application for Ubuntu that displays Markdown files as formatted, read-only text, like the preview pane of a Markdown editor. It has no editing capability and does not render through a web browser or an embedded browser engine. Each window shows one file. Appearance is controlled by global settings edited in a settings dialog with a live preview.
@@ -27,11 +25,12 @@ The primary workflow is opening a Markdown file and reading it, including its fo
 | Element | A kind of content that has its own style settings, such as H1, block quote, or table. The full list is in the Data section. |
 | Space before / space after | Vertical space added above or below an element, in points. |
 | Line spacing | The line height inside a multi-line element, as a multiple of the font size. |
-| Footnote marker | The small clickable label in the text that stands for a footnote, drawn as a pill. |
+| Footnote marker | The small clickable label in the text that stands for a footnote or citation, drawn as a pill. |
+| Citation | A bracketed number such as [3] in the text that refers to item 3 of a numbered source list at the end of the document. |
 | Footnote popup | The floating panel showing a footnote's text when its marker is clicked. |
 | Working settings | The set of style values currently in effect. |
 | Theme | A named, complete copy of the style values. |
-| Factory theme | The built-in theme holding the factory settings. It cannot be edited or deleted. |
+| Default theme | The built-in theme holding the initial settings. It cannot be edited, overwritten, or deleted. |
 | Recent file | A file that was successfully opened before, remembered by absolute path. |
 
 ## Data
@@ -50,20 +49,20 @@ Style values are grouped by element. The elements and their properties are:
 | Code block | font family, size, color, background color, line spacing, space before, space after |
 | Block quote | color, background color, line spacing, alignment, space before, space after |
 | Lists (ordered, unordered, task) | font family, size, color, line spacing, alignment, space before, space after |
-| Table | font family, size, color, header background color, cell background color, border color, space before, space after |
+| Table | font family (optional), size, color, header background color, cell background color, border color, space before, space after |
 | Horizontal rule | color, space before, space after |
 | Footnote marker | color, background color, size |
 | Footnote popup | font family, size, color, background color |
 
-Sizes are in points (6 to 96). Spaces are in points (0 to 200). Line spacing is a multiple of the font size (0.8 to 3.0). Alignment is left, center, right, or justify. Colors are #rrggbb. Font family is any installed family name. Content nested inside a list or block quote takes that container's font, size, color, line spacing, and alignment. The gap between two adjacent elements is the first element's space after plus the second element's space before.
+Sizes are in points (6 to 96). Spaces are in points (0 to 200). Line spacing is a multiple of the font size (0.8 to 3.0). Alignment is left, center, right, or justify. Colors are #rrggbb. Font family is any installed family name. The table's font family may be left unset, in which case table cells use the body text font. Paragraphs nested inside a list or block quote take that container's font, size, color, line spacing, and alignment; the innermost container wins. A block quote has no font or size of its own, so those come from whatever encloses it. Headings and code blocks keep their own style wherever they appear. The gap between two adjacent elements is the first element's space after plus the second element's space before.
 
 ### Themes
 
-The working settings apply globally to every window. A theme is a name plus a complete copy of all element values. Theme names are non-empty, unique ignoring case, and cannot be "Factory". The Factory theme is a plain light theme: dark gray text on white, a system sans-serif body at 11 pt with line spacing 1.4, bold headings sized at 2.0, 1.6, 1.3, 1.15, 1.0, and 0.9 times the body size, and a monospace font for code. The settings also record which theme is active. When the working settings differ from the active theme's values, the active theme is shown as modified.
+The working settings apply globally to every window. A theme is a name plus a complete copy of all element values. Theme names are non-empty, at most 64 characters, contain no control characters, are unique ignoring case, and cannot be "Default" (ignoring case). Leading and trailing spaces are removed. The Default theme is always available and is a plain light theme: dark gray text on white, a system sans-serif body at 11 pt with line spacing 1.4, bold headings sized at 2.0, 1.6, 1.3, 1.15, 1.0, and 0.9 times the body size, and a monospace font for code. The settings also record which theme is active. When the working settings differ from the active theme's values, the active theme is shown as modified.
 
 ### Stored state
 
-Settings, themes, recent files, and window size persist across launches. The logical structure is shown below with most elements abbreviated.
+Settings, themes, recent files, and window size persist across launches. The working settings, active theme, window size, and recent files are stored together. Each user theme is stored separately, one per theme. The logical structure is shown below with most elements abbreviated.
 
 ```json
 {
@@ -73,23 +72,28 @@ Settings, themes, recent files, and window size persist across launches. The log
     "h1": { "fontFamily": "Ubuntu", "size": 28, "color": "#111111", "lineSpacing": 1.2, "alignment": "left", "spaceBefore": 24, "spaceAfter": 10 }
   },
   "activeTheme": "Evening",
-  "themes": { "Evening": { "page": {}, "body": {}, "h1": {} } },
   "windowSize": [900, 700],
   "recentFiles": ["/home/me/notes/comps.md", "/home/me/notes/todo.md"]
 }
 ```
 
-Any property or element that is missing takes its Factory value. In this degraded example the only stored value for H1 is its size, so every other H1 property is the Factory value:
+A stored theme holds its name and a complete set of element values:
 
 ```json
-{ "workingSettings": { "h1": { "size": 30 } }, "activeTheme": null, "themes": {}, "recentFiles": [] }
+{ "name": "Evening", "settings": { "page": { "background": "#1e1e1e" }, "body": {}, "h1": {} } }
 ```
 
-A null active theme means the working settings are not tied to any theme.
+Any property or element that is missing takes its Default value. In this degraded example the only stored value for H1 is its size, so every other H1 property is the Default value:
+
+```json
+{ "workingSettings": { "h1": { "size": 30 } }, "activeTheme": null, "recentFiles": [] }
+```
+
+A null active theme means the working settings are not tied to any theme. An active theme that names a theme that no longer exists is treated the same way.
 
 ### Recent files
 
-The list holds up to 10 absolute paths, most recent first, without duplicates. A file is added, or moved to the top, each time it is opened successfully.
+The list holds up to 10 absolute paths, most recent first, without duplicates. A file is added, or moved to the top, each time it is opened successfully, including when it is already open and its window is brought to the front instead.
 
 ### Supported Markdown
 
@@ -123,11 +127,26 @@ A claim with no definition.[^missing]
 
 The first line shows the literal text `[^missing]` with no marker. The unused definition appears nowhere.
 
+### Citations
+
+Some documents, such as research write-ups, cite sources with bracketed numbers instead of footnotes. When a document ends with a heading named Sources, References, Citations, or Notes (ignoring case) followed directly by a numbered list, every `[N]` in the text whose N is a number in that list is drawn as a footnote marker showing N. Clicking it opens a popup showing list item N. The source list itself stays visible where it is. The brackets may be escaped in the source (`\[3\]`), which displays the same way.
+
+```markdown
+Reviewers praise its voice.\[1\]\[2\]
+
+## Sources
+
+1. [A Man Named Doll](https://example.com/doll)
+2. [Help Wanted](https://example.com/help)
+```
+
+The text shows markers 1 and 2. Degraded cases: a number outside the list (`[7]` with a two-item list) stays literal text. `[N]` inside inline code or link text stays literal. Without a matching heading directly before a closing numbered list, no citations are recognized. A document may use both footnotes and citations.
+
 ## UI Description
 
 ### Startup
 
-Running `mdmd` with no argument shows the launcher window. Running `mdmd <path>` opens a document window on that file with no launcher. Several paths open one window each. Launching mdmd while it is already running opens the new window in the running instance. The application exits when its last window closes.
+Running `mdmd` with no argument shows the launcher window. Running `mdmd <path>` opens a document window on that file with no launcher. Several paths open one window each. Launching mdmd while it is already running opens the new window in the running instance. The application exits when its last launcher or document window closes; an open Settings dialog closes with it and does not keep the application running.
 
 ### Launcher window
 
@@ -135,7 +154,7 @@ The window lists recent files, newest first, each showing the file name and its 
 
 ### Document window
 
-The window title is the file name. The content is the rendered file, scrolled to the top, read-only, with a vertical scrollbar. The user can select text with the mouse and copy it with Ctrl+C or the context menu. Ctrl+A selects all text. Menus:
+The window title is the file name. The content is the rendered file, scrolled to the top, read-only, with a vertical scrollbar. The user can select text with the mouse and copy it with Ctrl+C or the context menu. Copying is plain text; a footnote marker in the selection is copied as its number in brackets, such as [1], and images are left out. Ctrl+A selects all text. Menus:
 
 | Menu | Items |
 | --- | --- |
@@ -148,49 +167,51 @@ Open... from a document window opens the chosen file in a new window. If the cho
 
 ### Links and images
 
-Links to http, https, and mailto addresses open in the default browser. A link to a heading within the same file scrolls to that heading. A relative link to a Markdown file opens that file in a new document window, resolved against the current file's folder. Any other relative file link opens in the system's default application for that file type. The pointer shows a hand over links and markers.
+Links never open anything outside the window: no browser, no other application, and no new window, whatever the address. Links are drawn in the link style. Hovering a link shows its address, and the context menu over a link offers Copy Link Address. The one link that acts is a link to a heading in the same file, such as `[see](#key-findings)`, which scrolls to that heading. A heading's anchor is its text lowercased, with punctuation removed and spaces replaced by hyphens; a heading whose anchor repeats an earlier one gets `-1`, `-2`, and so on, in document order. The fragment in the link is matched ignoring case. A link to a heading that does not exist does nothing. The pointer shows a hand over footnote markers and over heading links that lead somewhere, and nowhere else.
 
-A relative image path is resolved against the folder of the file being displayed. Absolute paths are used as given. Images wider than the window are scaled down to fit and are never scaled up. Animated images show their first frame. Images with http or https addresses are not fetched and are shown as their alt text.
+A relative image path is resolved against the folder of the file being displayed. Absolute paths are used as given. Images wider than the text column are scaled down to fit, keeping their proportions, and are never scaled up. Animated images show their first frame. Images with any address other than a local file path, such as http, https, or data addresses, are not fetched and are shown as their alt text.
 
 ### Footnote popup
 
-Clicking a footnote marker opens the popup beside the marker, showing the footnote's text with all its formatting. Links inside the popup open in the default browser. The popup closes on Esc, on a click anywhere outside it, or when another marker is clicked, in which case the popup for that marker opens instead. The popup stays within the screen. Long footnotes scroll inside the popup. Popup text can be selected and copied.
+Clicking a footnote marker opens the popup beside the marker, showing the footnote's text with all its formatting, in the footnote popup style. Nothing inside the popup is clickable. A footnote marker or citation inside a footnote is shown as plain text in brackets, such as [2]. Links inside the popup do nothing, including heading links; each shows its address in parentheses after the link text, unless the text already is the address, so the address can be selected and copied. The popup closes on Esc, on a click anywhere outside it, or when another marker is clicked, in which case the popup for that marker opens instead. The popup stays within the screen. Long footnotes scroll inside the popup. Popup text can be selected and copied.
 
 ### Find
 
-Ctrl+F or Edit > Find... shows a find bar at the bottom of the document window with a text field, Previous and Next buttons, a Match case checkbox, a match count such as "3 of 12", and a close button. Typing highlights every match in the document and scrolls to the first match at or after the current position. Enter or F3 moves to the next match and Shift+Enter or Shift+F3 to the previous, both wrapping around. With no matches the field is marked as failed and the count reads "0 of 0". Esc or the close button hides the bar and clears the highlights. Footnote text is not searched.
+Ctrl+F or Edit > Find... shows a find bar at the bottom of the document window with a text field, Previous and Next buttons, a Match case checkbox, a match count such as "3 of 12", and a close button. Typing highlights every match in the document and scrolls to the first match at or after the current position. The current match is highlighted differently from the others. Enter or F3 moves to the next match and Shift+Enter or Shift+F3 to the previous, both wrapping around. With no matches the field is marked as failed and the count reads "0 of 0". Esc or the close button hides the bar and clears the highlights. Footnote text is not searched.
 
 ### Settings dialog
 
 Settings... opens one dialog at a time, from any window. It has four areas.
 
-Theme controls at the top: a drop-down listing Factory and the saved themes, a Save as Theme button, a Delete Theme button, and a Reset to Factory Settings button. The drop-down shows the active theme, with "(modified)" appended when the working values differ from it.
+Theme controls at the top: a drop-down listing Default and the saved themes, a Save as Theme button, and a Delete Theme button. The drop-down shows the active theme, with "(modified)" appended when the working values differ from it. When no theme is active it shows "No theme".
 
 An element list on the left, containing the elements from the Data section. Selecting one shows its properties on the right.
 
-Property controls on the right: a font family chooser, a numeric field for each size or spacing, a color picker with a hex field, an alignment chooser, and a checkbox for link underline. Values outside their allowed range are rejected, and the field keeps its previous value.
+Property controls on the right: a font family chooser (for the table, with a "Same as body text" option that leaves the table font unset; a stored family that is not installed is listed and marked as not installed), a numeric field for each size or spacing, a color picker with a hex field, an alignment chooser, and a checkbox for link underline. Values outside their allowed range are rejected, and the field keeps its previous value.
 
 A live preview pane, showing a built-in sample document that contains every element: all six heading levels, body text, a link, inline code, a code block, a block quote, ordered, unordered, and task lists, a table, a horizontal rule, and a footnote marker with a sample popup. The preview updates as each control changes. The open document windows change only when Apply or OK is pressed.
 
 Buttons: Apply saves the working values and updates every open window. OK does the same and closes the dialog. Cancel, or closing the dialog, discards changes made since the last Apply.
 
-Selecting a theme in the drop-down loads all its values into the dialog. Reset to Factory Settings, after a confirmation, loads all Factory values into the dialog and makes Factory the active theme. Neither takes effect in the windows until Apply or OK. Save as Theme asks for a name. A name matching an existing theme asks whether to overwrite it, and an invalid name is refused with a message. The saved theme becomes the active theme. Delete Theme, after a confirmation, removes the selected user theme. The dialog's values are unchanged and the active theme becomes none. The Factory theme cannot be deleted or overwritten.
+Selecting a theme in the drop-down loads all its values into the dialog; selecting Default returns to the initial values. This does not take effect in the windows until Apply or OK. Save as Theme asks for a name. A name matching an existing theme, ignoring case, asks whether to overwrite it, and an invalid name is refused with a message. The theme is saved immediately and becomes the active theme. Delete Theme, after a confirmation, removes the active user theme immediately. The dialog's values are unchanged and the active theme becomes none. Delete Theme is unavailable for the Default theme and when no theme is active. The Default theme cannot be deleted or overwritten. Saving or deleting a theme that cannot be written shows an error and changes nothing.
 
-### Optional behaviors
+### Automatic reload and zoom
 
-Built only if the effort is low. Automatic reload: when the displayed file changes on disk, the window reloads as Reload does. Zoom: View > Zoom scales all text in that window by steps of 10 percent from 50 to 300 percent. Zoom applies to one window and is not saved.
+Automatic reload: when the displayed file changes on disk, including when an editor saves by replacing the file, the window reloads as Reload does, keeping the scroll position. If the changed file cannot be read, nothing is shown and the current content stays; an explicit Reload still reports the error.
+
+Zoom: View > Zoom scales all text and spacing in that window by steps of 10 percent from 50 to 300 percent. Images keep their size. Zoom applies to one window and is not saved.
 
 ## Error Handling
 
 A file given on the command line that does not exist, is a directory, or cannot be read shows an error message naming the path. If no other document window is open, the launcher window appears afterward so the application is never left without a window. When several paths are given, the failures are reported and the readable files still open.
 
-A file that is not valid UTF-8 is displayed with undecodable bytes replaced by a replacement character. The file extension is not checked, so any readable file opens as Markdown.
+A file larger than 20 MB is refused with an error naming the path. A file that is not valid UTF-8 is displayed with undecodable bytes replaced by a replacement character. The file extension is not checked, so any readable file opens as Markdown.
 
-Reload on a file that has been deleted or become unreadable shows an error and leaves the displayed content in place.
+Reload on a file that has been deleted or become unreadable shows an error and leaves the displayed content in place. Opening a recent file that no longer exists or is now a folder shows an error and removes it from the recent files.
 
 A missing or unreadable image shows its alt text in place of the image and does not interrupt rendering. A footnote reference with no definition shows as literal text.
 
-If the stored settings cannot be parsed, mdmd starts with Factory settings and no themes. The unreadable file is left untouched until the next save, when it is first renamed with a .bak suffix. An invalid value for a single property, such as an unparseable color or an out-of-range size, falls back to the Factory value for that property only, and the rest of the file is honored. A stored font family that is not installed renders with the Factory font for that element, and the stored value is kept. A stored recent files list that cannot be parsed is treated as empty.
+If the stored settings cannot be parsed, mdmd starts with Default settings. The unreadable file is left untouched until the next save, when it is first renamed with a .bak suffix. Stored themes are unaffected. A stored theme that cannot be parsed, or whose name is invalid, is skipped and left untouched. An invalid value for a single property, such as an unparseable color or an out-of-range size, falls back to the Default value for that property only, and the rest of the file is honored. A stored font family that is not installed renders with the Default font for that element, and the stored value is kept. A stored recent files list that cannot be parsed is treated as empty. An invalid stored window size falls back to 900 by 700.
 
 If settings cannot be written when Apply or OK is pressed, the dialog stays open and shows an error. The windows keep their previous appearance.
 
@@ -198,4 +219,4 @@ If settings cannot be written when Apply or OK is pressed, the dialog stays open
 
 Version 1.0. Out of scope: editing of any kind, drag-and-drop, tabs or multiple files per window, an outline or table of contents, syntax highlighting, printing and PDF export, import and export of settings or themes, fetching remote images, and packaging or distribution.
 
-Defaults chosen without explicit direction, to be overruled as needed: Open... from a document window opens a new window. Footnote definitions are not shown at the end of the document. Raw HTML appears as literal text and YAML front matter is hidden. Spacing between adjacent elements is additive. Remote images are not fetched. Relative links to other Markdown files open in a new window. Window size is the only window state remembered.
+Defaults chosen without explicit direction, to be overruled as needed: Open... from a document window opens a new window. Footnote definitions are not shown at the end of the document. Raw HTML appears as literal text and YAML front matter is hidden. Spacing between adjacent elements is additive. Remote images are not fetched. Window size is the only window state remembered; there is one stored size, set by whichever window closed last. Files over 20 MB are refused.
