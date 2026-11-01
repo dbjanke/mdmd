@@ -53,6 +53,7 @@ from mdmd.core.document import (
     ListBlock,
     NoteRef,
     Paragraph,
+    SoftBreak,
     Strikethrough,
     Strong,
     Table,
@@ -100,6 +101,7 @@ class RenderOptions:
     # Footnote popup content: nothing is clickable (markers become plain "[n]" text, no link is an
     # anchor), and each link's address is written after its text so it can be selected.
     popup: bool = False
+    show_soft_line_breaks: bool = False  # a single line ending in the source shows as a line break, not a space
 
 
 @dataclass(frozen=True)
@@ -495,6 +497,8 @@ class _Writer:
                     self._cursor.insertText(text, fmt)
                 case LineBreak():
                     self._cursor.insertText(LINE_SEPARATOR, fmt)
+                case SoftBreak():
+                    self._cursor.insertText(self._soft_break_text(), fmt)
                 case Emphasis(children):
                     italic = QTextCharFormat(fmt)
                     italic.setFontItalic(True)
@@ -515,6 +519,9 @@ class _Writer:
                     self._image(inline, fmt, ctx)
                 case NoteRef(note_id, label):
                     self._note_marker(note_id, label, fmt)
+
+    def _soft_break_text(self) -> str:
+        return LINE_SEPARATOR if self._options.show_soft_line_breaks else " "
 
     def _inline_code_format(self, fmt: QTextCharFormat) -> QTextCharFormat:
         s = self._style
@@ -548,7 +555,8 @@ class _Writer:
         path = resolve_image_path(image.src, base_dir) if base_dir is not None else None
         loaded = QImage(str(path)) if path is not None and path.is_file() else QImage()
         if loaded.isNull():
-            self._cursor.insertText(image.alt, fmt)
+            # Alt text keeps the source's line endings; a raw "\n" here would split the paragraph in two.
+            self._cursor.insertText(image.alt.replace("\n", self._soft_break_text()), fmt)
             return
         self._image_count += 1
         name = f"{IMAGE_URL_PREFIX}{self._image_count}"

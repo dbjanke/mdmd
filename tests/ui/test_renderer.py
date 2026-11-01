@@ -21,7 +21,14 @@ from mdmd.core.parser import parse_markdown
 from mdmd.core.style import Style
 from mdmd.ui.document_view import char_format_at
 from mdmd.ui.fonts import FontResolver
-from mdmd.ui.renderer import PX_PER_PT, RenderedDocument, RenderOptions, note_id_from_href, render_document
+from mdmd.ui.renderer import (
+    LINE_SEPARATOR,
+    PX_PER_PT,
+    RenderedDocument,
+    RenderOptions,
+    note_id_from_href,
+    render_document,
+)
 from mdmd.ui.text_objects import (
     LINK_HREF_PROPERTY,
     MARKER_BACKGROUND_PROPERTY,
@@ -108,6 +115,67 @@ class TestText:
         block_format = block_with_text(render("text", fonts, style).document, "text").blockFormat()
         assert block_format.lineHeightType() == QTextBlockFormat.LineHeightTypes.FixedHeight.value
         assert block_format.lineHeight() == pytest.approx(px(11 * 2.0))
+
+
+class TestSoftLineBreaks:
+    SOURCE = "Para one\nline two\n\n- item one\n  item two\n\n> quote one\n> quote two\n\nHead one\nhead two\n---\n"
+    PAIRS = (("Para one", "line two"), ("item one", "item two"), ("quote one", "quote two"), ("Head one", "head two"))
+
+    def test_hidden_by_default_as_spaces(self, fonts: FontResolver) -> None:
+        raw = render(self.SOURCE, fonts).document.toRawText()
+        for first, second in self.PAIRS:
+            assert f"{first} {second}" in raw
+
+    def test_shown_as_line_breaks_in_every_kind_of_block(self, fonts: FontResolver) -> None:
+        raw = render(self.SOURCE, fonts, show_soft_line_breaks=True).document.toRawText()
+        for first, second in self.PAIRS:
+            assert f"{first}{LINE_SEPARATOR}{second}" in raw
+
+    def test_shown_in_footnote_popups(self, fonts: FontResolver) -> None:
+        note = parse_markdown("x[^1]\n\n[^1]: one\n    two\n").notes
+        rendered = render_document(
+            Document(blocks=next(iter(note.values())), notes=note),
+            DEFAULT_STYLE,
+            fonts,
+            RenderOptions(popup=True, show_soft_line_breaks=True),
+        )
+        _alive.append(rendered)
+        assert f"one{LINE_SEPARATOR}two" in rendered.document.toRawText()
+
+    @pytest.mark.parametrize("shown", [False, True])
+    def test_hard_breaks_and_code_spans_ignore_the_choice(self, fonts: FontResolver, shown: bool) -> None:
+        raw = render("hard\\\nbreak `code\nspan`", fonts, show_soft_line_breaks=shown).document.toRawText()
+        assert f"hard{LINE_SEPARATOR}break" in raw
+        assert "code span" in raw
+
+    @pytest.mark.parametrize(
+        ("source", "hidden", "shown"),
+        [("a \nb", "a b", "a\u2028b"), ("a\r\nb", "a b", "a\u2028b")],
+        ids=["trailing-space", "crlf"],
+    )
+    def test_no_stray_characters_around_the_break(
+        self, fonts: FontResolver, source: str, hidden: str, shown: str
+    ) -> None:
+        assert render(source, fonts).document.toRawText() == hidden
+        assert render(source, fonts, show_soft_line_breaks=True).document.toRawText() == shown
+
+    @pytest.mark.parametrize(("shown", "expected"), [(False, "before a b after"), (True, "before a\u2028b after")])
+    def test_a_line_ending_in_alt_text_follows_the_choice(
+        self, fonts: FontResolver, shown: bool, expected: str
+    ) -> None:
+        doc = render("before ![a\nb](missing.png) after", fonts, show_soft_line_breaks=shown).document
+        assert doc.toRawText() == expected
+        assert doc.blockCount() == 1  # still one paragraph
+
+    def test_formatting_continues_across_a_shown_break(self, fonts: FontResolver) -> None:
+        doc = render("*one\ntwo*", fonts, show_soft_line_breaks=True).document
+        assert format_of(doc, "one").fontItalic()
+        assert format_of(doc, "two").fontItalic()
+
+    def test_a_shown_break_takes_one_position_like_the_space_it_replaces(self, fonts: FontResolver) -> None:
+        hidden = render("a\nb", fonts).document
+        shown = render("a\nb", fonts, show_soft_line_breaks=True).document
+        assert hidden.characterCount() == shown.characterCount()
 
 
 class TestSpacing:

@@ -1,6 +1,6 @@
 import pytest
 
-from mdmd.core.document import Emphasis, Link, NoteRef, Paragraph, Text
+from mdmd.core.document import Emphasis, Link, NoteRef, Paragraph, SoftBreak, Text
 from mdmd.core.parser import parse_markdown
 
 SOURCES = "\n\n## Sources\n\n1. [First](https://a.example)\n2. [Second](https://b.example)\n"
@@ -93,3 +93,7 @@ def test_unusual_digit_runs_stay_literal(citation: str) -> None:
 def test_longest_allowed_citation_number_still_links() -> None:
     inlines = body_inlines("Claim [123456789].\n\n## Sources\n\n123456789. Far")
     assert inlines[1] == NoteRef("cite:123456789", "123456789")
+
+
+def test_a_citation_after_a_soft_line_break_becomes_a_marker() -> None:
+    assert body_inlines("Claim\n[1]" + SOURCES) == (Text("Claim"), SoftBreak(), NoteRef("cite:1", "1"))

@@ -1,5 +1,6 @@
 """Recent files, find, zoom, links, and stored settings."""
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,8 @@ from mdmd.core.default_style import DEFAULT_STYLE
 from mdmd.core.links import heading_fragment, resolve_image_path
 from mdmd.core.recent import MAX_RECENT_FILES, add_recent, parse_recent, remove_recent
 from mdmd.core.search import Match, count_label, find_matches, first_at_or_after, step
+from mdmd.core.settings_changes import soft_line_breaks_shown
+from mdmd.core.view_preferences import ViewPreferences
 from mdmd.core.zoom import ZOOM_MAX_PERCENT, ZOOM_MIN_PERCENT, zoom_in, zoom_out
 
 
@@ -117,8 +120,23 @@ class TestAppSettings:
             active_theme="Evening",
             window_size=(1000, 800),
             recent_files=("/a.md",),
+            show_soft_line_breaks=True,
         )
         assert parse_app_settings(app_settings_to_json(settings)).settings == settings
+
+    @pytest.mark.parametrize(
+        ("raw", "shown"), [({}, False), ({"showSoftLineBreaks": False}, False), ({"showSoftLineBreaks": True}, True)]
+    )
+    def test_soft_line_breaks_are_hidden_unless_stored_as_shown(self, raw: dict[str, object], shown: bool) -> None:
+        parsed = parse_app_settings(raw)
+        assert parsed.settings.show_soft_line_breaks is shown
+        assert parsed.rejected == ()
+
+    @pytest.mark.parametrize("value", [1, "true", None, [True]])
+    def test_bad_soft_line_breaks_value_falls_back_to_hidden(self, value: object) -> None:
+        parsed = parse_app_settings({"showSoftLineBreaks": value})
+        assert parsed.settings.show_soft_line_breaks is False
+        assert "showSoftLineBreaks" in parsed.rejected
 
     def test_degraded_example(self) -> None:
         raw = {"workingSettings": {"h1": {"size": 30}}, "activeTheme": None, "themes": {}, "recentFiles": []}
@@ -142,3 +160,36 @@ class TestAppSettings:
 
     def test_clamp_window_size(self) -> None:
         assert clamp_window_size(50, 100000) == (200, 20000)
+
+
+class TestSoftLineBreaksChange:
+    def test_sets_the_choice_rather_than_flipping_it(self) -> None:
+        """Two processes saving the same choice at once must agree, not cancel each other out."""
+        once = soft_line_breaks_shown(True)(AppSettings())
+        assert once.show_soft_line_breaks is True
+        assert soft_line_breaks_shown(True)(once).show_soft_line_breaks is True
+        assert soft_line_breaks_shown(False)(once).show_soft_line_breaks is False
+
+    def test_leaves_everything_else_alone(self) -> None:
+        settings = AppSettings(
+            style=DEFAULT_STYLE.with_value("h1", "size", 30),
+            active_theme=None,
+            window_size=(1000, 800),
+            recent_files=("/a.md",),
+        )
+        assert soft_line_breaks_shown(True)(settings) == replace(settings, show_soft_line_breaks=True)
+
+
+class TestViewPreferences:
+    def test_come_from_the_style_and_the_soft_line_breaks_choice(self) -> None:
+        style = DEFAULT_STYLE.with_value("h1", "size", 30)
+        settings = AppSettings(style=style, show_soft_line_breaks=True)
+        assert settings.view_preferences == ViewPreferences(style, show_soft_line_breaks=True)
+
+    def test_defaults_match_the_stored_defaults(self) -> None:
+        assert AppSettings().view_preferences == ViewPreferences()
+
+    def test_are_unchanged_by_settings_that_do_not_affect_drawing(self) -> None:
+        settings = AppSettings()
+        others = replace(settings, active_theme=None, window_size=(1000, 800), recent_files=("/a.md",))
+        assert others.view_preferences == settings.view_preferences

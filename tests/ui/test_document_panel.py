@@ -11,6 +11,7 @@ from pytestqt.qtbot import QtBot
 
 from mdmd.core.default_style import DEFAULT_STYLE
 from mdmd.core.parser import DocumentParseError, parse_markdown
+from mdmd.core.view_preferences import ViewPreferences
 from mdmd.storage import markdown_files
 from mdmd.storage.markdown_files import FileOpenError, OpenFailure
 from mdmd.ui.document_panel import DocumentPanel
@@ -34,7 +35,7 @@ FOOTNOTES = (
 def make_panel(qtbot: QtBot, fonts: FontResolver, write_md: WriteMd) -> Callable[[str], DocumentPanel]:
     def make(text: str) -> DocumentPanel:
         path = write_md("doc.md", text)
-        panel = DocumentPanel(path, parse_markdown(text), DEFAULT_STYLE, fonts)
+        panel = DocumentPanel(path, parse_markdown(text), ViewPreferences(), fonts)
         qtbot.addWidget(panel)
         panel.resize(700, 500)
         panel.show()
@@ -69,6 +70,51 @@ class TestCopy:
         panel.view.selectAll()
         panel.view.copy()
         assert QGuiApplication.clipboard().text() == "Hello there"
+
+
+class TestSoftLineBreaks:
+    def test_toggling_renders_again_and_copy_follows_what_is_shown(
+        self, make_panel: Callable[[str], DocumentPanel]
+    ) -> None:
+        panel = make_panel("one\ntwo")
+        panel.view.selectAll()
+        assert panel.view.selected_plain_text() == "one two"
+        panel.set_view_preferences(ViewPreferences(show_soft_line_breaks=True))
+        assert panel.view_preferences.show_soft_line_breaks
+        panel.view.selectAll()
+        assert panel.view.selected_plain_text() == "one\ntwo"
+
+    def test_equal_preferences_do_not_render_again(self, make_panel: Callable[[str], DocumentPanel]) -> None:
+        panel = make_panel("one\ntwo")
+        shown = panel.view.document()
+        panel.set_view_preferences(ViewPreferences())
+        assert panel.view.document() is shown
+        panel.set_view_preferences(ViewPreferences(show_soft_line_breaks=True))
+        assert panel.view.document() is not shown
+
+    def test_footnote_popup_follows_the_choice(self, qtbot: QtBot, make_panel: Callable[[str], DocumentPanel]) -> None:
+        panel = make_panel("Claim.[^a]\n\n[^a]: one\n    two\n")
+        panel.set_view_preferences(ViewPreferences(show_soft_line_breaks=True))
+        click_position(qtbot, panel, marker_positions(panel)[0])
+        popup = panel.popup
+        assert popup is not None
+        qtbot.waitUntil(popup.isVisible)
+        assert popup.view.document().toPlainText() == "one\ntwo"
+
+    def test_find_matches_what_is_shown_and_survives_the_toggle(
+        self, qtbot: QtBot, make_panel: Callable[[str], DocumentPanel]
+    ) -> None:
+        panel = make_panel("alpha one\nalpha two")
+        panel.finder.open()
+        qtbot.keyClicks(panel.find_bar.field, "one alpha")
+        assert panel.finder.match_count == 1  # the soft break is shown as a space
+        panel.set_view_preferences(ViewPreferences(show_soft_line_breaks=True))
+        assert panel.finder.match_count == 0  # now it is a line break, so the phrase no longer appears
+        panel.find_bar.field.clear()
+        qtbot.keyClicks(panel.find_bar.field, "alpha")
+        assert panel.finder.match_count == 2
+        panel.set_view_preferences(ViewPreferences())
+        assert panel.finder.match_count == 2
 
 
 class TestLinks:
@@ -237,9 +283,9 @@ class TestReloadAndZoom:
         panel.reset_zoom()
         assert size() == pytest.approx(11)
 
-    def test_set_style_restyles(self, make_panel: Callable[[str], DocumentPanel]) -> None:
+    def test_new_preferences_restyle(self, make_panel: Callable[[str], DocumentPanel]) -> None:
         panel = make_panel("text")
-        panel.set_style(DEFAULT_STYLE.with_value("body", "size", 20))
+        panel.set_view_preferences(ViewPreferences(style=DEFAULT_STYLE.with_value("body", "size", 20)))
         doc = panel.view.document()
         assert char_format_at(doc, doc.find("text").selectionStart()).fontPointSize() == 20
 

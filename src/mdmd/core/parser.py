@@ -33,6 +33,7 @@ from mdmd.core.document import (
     ListItem,
     NoteRef,
     Paragraph,
+    SoftBreak,
     Strikethrough,
     Strong,
     Table,
@@ -250,7 +251,7 @@ def _inline_run(
             case "text" | "html_inline":
                 result.append(Text(token.content))
             case "softbreak":
-                result.append(Text(" "))
+                result.append(SoftBreak())
             case "hardbreak":
                 result.append(LineBreak())
             case "code_inline":

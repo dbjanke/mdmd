@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from mdmd.core.default_style import DEFAULT_STYLE, DEFAULT_THEME_NAME
 from mdmd.core.recent import parse_recent
 from mdmd.core.style import Style, parse_style, style_to_json
+from mdmd.core.view_preferences import ViewPreferences
 
 DEFAULT_WINDOW_SIZE = (900, 700)
 MIN_WINDOW_SIDE = 200
@@ -19,6 +20,11 @@ class AppSettings:
     active_theme: str | None = DEFAULT_THEME_NAME
     window_size: tuple[int, int] = DEFAULT_WINDOW_SIZE
     recent_files: tuple[str, ...] = field(default_factory=tuple)
+    show_soft_line_breaks: bool = False  # single line endings in a paragraph show as line breaks, not spaces
+
+    @property
+    def view_preferences(self) -> ViewPreferences:
+        return ViewPreferences(self.style, self.show_soft_line_breaks)
 
 
 @dataclass(frozen=True)
@@ -44,11 +50,17 @@ def parse_app_settings(raw: object) -> ParsedSettings:
             rejected.append("windowSize")
         window_size = DEFAULT_WINDOW_SIZE
 
+    show_soft_line_breaks = data.get("showSoftLineBreaks", False)
+    if not isinstance(show_soft_line_breaks, bool):
+        rejected.append("showSoftLineBreaks")
+        show_soft_line_breaks = False
+
     settings = AppSettings(
         style=parsed_style.style,
         active_theme=active,
         window_size=window_size,
         recent_files=parse_recent(data.get("recentFiles")),
+        show_soft_line_breaks=show_soft_line_breaks,
     )
     return ParsedSettings(settings, tuple(rejected))
 
@@ -76,4 +88,5 @@ def app_settings_to_json(settings: AppSettings) -> dict[str, object]:
         "activeTheme": settings.active_theme,
         "windowSize": list(settings.window_size),
         "recentFiles": list(settings.recent_files),
+        "showSoftLineBreaks": settings.show_soft_line_breaks,
     }

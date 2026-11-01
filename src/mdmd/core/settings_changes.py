@@ -31,6 +31,11 @@ def window_resized(width: int, height: int) -> SettingsChange:
     return lambda settings: replace(settings, window_size=size)
 
 
+def soft_line_breaks_shown(shown: bool) -> SettingsChange:
+    """View > Show Soft Line Breaks was checked or unchecked."""
+    return lambda settings: replace(settings, show_soft_line_breaks=shown)
+
+
 def appearance_applied(style: Style, active_theme: str | None) -> SettingsChange:
     """The settings dialog's Apply: new working values, tied to `active_theme` or to none."""
     return lambda settings: replace(settings, style=style, active_theme=active_theme)

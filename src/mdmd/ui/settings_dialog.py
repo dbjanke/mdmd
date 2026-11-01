@@ -59,6 +59,9 @@ class SettingsHost(Protocol):
     @property
     def prompts(self) -> Prompts: ...
 
+    @property
+    def show_soft_line_breaks(self) -> bool: ...
+
     def apply_settings(self, draft: SettingsDraft) -> None:
         """Raises OSError if the settings cannot be saved; nothing changes then."""
         ...
@@ -95,7 +98,7 @@ class SettingsDialog(QDialog):
 
         self._element_list.setCurrentRow(0)
         self._refresh_theme_controls()
-        self._render_preview()
+        self.render_preview()
 
     # -------------------------------------------------------------- layout
 
@@ -130,7 +133,7 @@ class SettingsDialog(QDialog):
         self._preview_timer = QTimer(self)
         self._preview_timer.setSingleShot(True)
         self._preview_timer.setInterval(PREVIEW_DELAY_MS)
-        self._preview_timer.timeout.connect(self._render_preview)
+        self._preview_timer.timeout.connect(self.render_preview)
 
         properties_column = QVBoxLayout()
         properties_column.addWidget(self._properties)
@@ -293,9 +296,9 @@ class SettingsDialog(QDialog):
 
     # -------------------------------------------------------------- preview
 
-    def _render_preview(self) -> None:
+    def render_preview(self) -> None:
         style = self._draft.style
-        rendered = render_document(self._sample, style, self._host.fonts)
+        rendered = render_document(self._sample, style, self._host.fonts, self._preview_options())
         bar = self._preview.verticalScrollBar()
         offset = bar.value()
         self._preview.show_rendered(rendered, style.text("page", "background"), style.text("body", "color"))
@@ -307,11 +310,14 @@ class SettingsDialog(QDialog):
             return
         style = popup_style(self._draft.style)
         rendered = render_document(
-            Document(blocks, self._sample.notes), style, self._host.fonts, RenderOptions(popup=True)
+            Document(blocks, self._sample.notes), style, self._host.fonts, self._preview_options(popup=True)
         )
         if self._popup is None:
             self._popup = FootnotePopup(self)
         self._popup.show_note(rendered, style.text("page", "background"), style.text("body", "color"), marker)
+
+    def _preview_options(self, popup: bool = False) -> RenderOptions:
+        return RenderOptions(popup=popup, show_soft_line_breaks=self._host.show_soft_line_breaks)
 
     # -------------------------------------------------------------- buttons
 

@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from mdmd.core.cascade import popup_style
 from mdmd.core.document import Document
-from mdmd.core.style import Style
+from mdmd.core.view_preferences import ViewPreferences
 from mdmd.core.zoom import ZOOM_DEFAULT_PERCENT, zoom_in, zoom_out
 from mdmd.logs import get_logger, log_event
 from mdmd.storage.markdown_files import FileOpenError, load_document
@@ -34,11 +34,16 @@ class ScrollKeep(Enum):
 
 class DocumentPanel(QWidget):
     def __init__(
-        self, path: Path, document: Document, style: Style, fonts: FontResolver, parent: QWidget | None = None
+        self,
+        path: Path,
+        document: Document,
+        preferences: ViewPreferences,
+        fonts: FontResolver,
+        parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._path = path
-        self._style = style
+        self._preferences = preferences
         self._fonts = fonts
         self._zoom = ZOOM_DEFAULT_PERCENT
         self._document = document
@@ -78,6 +83,10 @@ class DocumentPanel(QWidget):
     def zoom_percent(self) -> int:
         return self._zoom
 
+    @property
+    def view_preferences(self) -> ViewPreferences:
+        return self._preferences
+
     # -------------------------------------------------------------- content
 
     def reload(self) -> None:
@@ -94,9 +103,10 @@ class DocumentPanel(QWidget):
             # Automatic reloads stay quiet; an explicit Reload reports the problem.
             log_event(_log, "auto_reload_failed", level=logging.WARNING, reason=error.failure.name)
 
-    def set_style(self, style: Style) -> None:
-        self._style = style
-        self._render(ScrollKeep.FRACTION)
+    def set_view_preferences(self, preferences: ViewPreferences) -> None:
+        if preferences != self._preferences:
+            self._preferences = preferences
+            self._render(ScrollKeep.FRACTION)
 
     def zoom_in(self) -> None:
         self._set_zoom(zoom_in(self._zoom))
@@ -113,14 +123,20 @@ class DocumentPanel(QWidget):
             self._render(ScrollKeep.FRACTION)
 
     def _options(self, popup: bool = False) -> RenderOptions:
-        return RenderOptions(zoom_percent=self._zoom, base_dir=self._path.parent, popup=popup)
+        return RenderOptions(
+            zoom_percent=self._zoom,
+            base_dir=self._path.parent,
+            popup=popup,
+            show_soft_line_breaks=self._preferences.show_soft_line_breaks,
+        )
 
     def _render(self, keep: ScrollKeep = ScrollKeep.TOP) -> None:
         bar = self._view.verticalScrollBar()
         offset = bar.value()
         fraction = offset / bar.maximum() if bar.maximum() > 0 else 0.0
-        rendered = render_document(self._document, self._style, self._fonts, self._options())
-        self._view.show_rendered(rendered, self._style.text("page", "background"), self._style.text("body", "color"))
+        style = self._preferences.style
+        rendered = render_document(self._document, style, self._fonts, self._options())
+        self._view.show_rendered(rendered, style.text("page", "background"), style.text("body", "color"))
 
         def restore() -> None:
             if keep is ScrollKeep.OFFSET:
@@ -141,7 +157,7 @@ class DocumentPanel(QWidget):
         blocks = self._document.notes.get(note_id)
         if blocks is None:
             return
-        style = popup_style(self._style)
+        style = popup_style(self._preferences.style)
         note = Document(blocks=blocks, notes=self._document.notes)
         rendered = render_document(note, style, self._fonts, self._options(popup=True))
         if self._popup is None:

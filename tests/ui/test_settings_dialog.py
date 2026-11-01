@@ -11,8 +11,10 @@ from pytestqt.qtbot import QtBot
 
 from mdmd.core.default_style import DEFAULT_STYLE
 from mdmd.core.document import Heading, ListBlock
+from mdmd.core.parser import parse_markdown
 from mdmd.core.style import ELEMENTS
 from mdmd.core.themes import Theme
+from mdmd.ui import settings_dialog
 from mdmd.ui.application import Application
 from mdmd.ui.document_view import char_format_at
 from mdmd.ui.footnote_popup import FootnotePopup
@@ -264,3 +266,15 @@ class TestDialogEdges:
         assert popup is not None
         qtbot.waitUntil(popup.isVisible)
         assert "sample footnote" in popup.view.document().toPlainText()
+
+
+class TestSoftLineBreaks:
+    def test_the_preview_follows_the_menu_choice(self, app: Application, monkeypatch: pytest.MonkeyPatch) -> None:
+        # The real sample has no soft line breaks, so give the dialog one that does.
+        monkeypatch.setattr(settings_dialog, "sample_document", lambda: parse_markdown("one\ntwo"))
+        app.show_settings(app.open_launcher())
+        dialog = app.settings_dialog
+        assert dialog is not None
+        assert dialog.preview.document().toPlainText() == "one two"
+        app.set_show_soft_line_breaks(True)
+        assert dialog.preview.document().toPlainText() == "one\ntwo"

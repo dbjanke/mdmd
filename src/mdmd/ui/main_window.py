@@ -10,7 +10,7 @@ from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
 from PySide6.QtWidgets import QMainWindow, QMenu
 
 from mdmd.core.document import Document
-from mdmd.core.style import Style
+from mdmd.core.view_preferences import ViewPreferences
 from mdmd.storage.markdown_files import FileOpenError
 from mdmd.ui.document_panel import DocumentPanel
 from mdmd.ui.fonts import FontResolver
@@ -26,13 +26,13 @@ class WindowHost(Protocol):
     """What a window needs from the application."""
 
     @property
-    def style(self) -> Style: ...
-
-    @property
     def fonts(self) -> FontResolver: ...
 
     @property
     def window_size(self) -> tuple[int, int]: ...
+
+    @property
+    def view_preferences(self) -> ViewPreferences: ...
 
     @property
     def prompts(self) -> Prompts: ...
@@ -44,6 +44,8 @@ class WindowHost(Protocol):
     def choose_and_open(self, requester: MainWindow) -> None: ...
 
     def show_settings(self, requester: MainWindow) -> None: ...
+
+    def set_show_soft_line_breaks(self, shown: bool) -> None: ...
 
     def show_about(self, requester: MainWindow) -> None: ...
 
@@ -88,16 +90,22 @@ class MainWindow(QMainWindow):
 
     def show_document(self, path: Path, document: Document) -> None:
         """Replace the current content (launcher or document) with `path` rendered."""
-        self._document = DocumentPanel(path, document, self._host.style, self._host.fonts, self)
+        self._document = DocumentPanel(path, document, self._host.view_preferences, self._host.fonts, self)
         self._launcher = None
         self.setCentralWidget(self._document)  # deletes the previous central widget
         self.setWindowTitle(path.name)
         self._update_actions()
         self._document.view.setFocus()
 
-    def apply_style(self, style: Style) -> None:
+    def apply_view_preferences(self, preferences: ViewPreferences) -> None:
+        """Show preferences changed here, in another window, or in another process."""
+        self._soft_line_breaks_action.setChecked(preferences.show_soft_line_breaks)
         if self._document is not None:
-            self._document.set_style(style)
+            self._document.set_view_preferences(preferences)
+
+    @property
+    def soft_line_breaks_action(self) -> QAction:
+        return self._soft_line_breaks_action
 
     def refresh_recent_files(self) -> None:
         if self._launcher is not None:
@@ -154,6 +162,14 @@ class MainWindow(QMainWindow):
         self._document_action(view_menu, "Zoom &In", lambda d: d.zoom_in(), "Ctrl++", "Ctrl+=")
         self._document_action(view_menu, "Zoom &Out", lambda d: d.zoom_out(), "Ctrl+-")
         self._document_action(view_menu, "&Reset Zoom", lambda d: d.reset_zoom(), "Ctrl+0")
+        view_menu.addSeparator()
+        # A preference, not a document action, so it stays available in the launcher.
+        self._soft_line_breaks_action = QAction("Show &Soft Line Breaks", self)
+        self._soft_line_breaks_action.setCheckable(True)
+        self._soft_line_breaks_action.setChecked(self._host.view_preferences.show_soft_line_breaks)
+        # `triggered` fires only for the user, so updating the check mark from the settings doesn't loop back.
+        self._soft_line_breaks_action.triggered.connect(self._host.set_show_soft_line_breaks)
+        view_menu.addAction(self._soft_line_breaks_action)
 
         help_menu = bar.addMenu("&Help")
         self._action(help_menu, "&About mdmd", lambda: self._host.show_about(self))

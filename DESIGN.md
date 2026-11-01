@@ -32,6 +32,7 @@ The primary workflow is opening a Markdown file and reading it, including its fo
 | Theme | A named, complete copy of the style values. |
 | Default theme | The built-in theme holding the initial settings. It cannot be edited, overwritten, or deleted. |
 | Recent file | A file that was successfully opened before, remembered by absolute path. |
+| Soft line break | A single line ending inside a paragraph or other block of text that is not marked as a hard line break (by two trailing spaces or a trailing backslash). |
 
 ## Data
 
@@ -62,7 +63,7 @@ The working settings apply globally to every window. A theme is a name plus a co
 
 ### Stored state
 
-Settings, themes, recent files, and window size persist across launches. The working settings, active theme, window size, and recent files are stored together. Each user theme is stored separately, one per theme. The logical structure is shown below with most elements abbreviated.
+Settings, themes, recent files, window size, and the Show Soft Line Breaks choice persist across launches. The working settings, active theme, window size, recent files, and Show Soft Line Breaks choice are stored together. Each user theme is stored separately, one per theme. The logical structure is shown below with most elements abbreviated.
 
 ```json
 {
@@ -73,7 +74,8 @@ Settings, themes, recent files, and window size persist across launches. The wor
   },
   "activeTheme": "Evening",
   "windowSize": [900, 700],
-  "recentFiles": ["/home/me/notes/comps.md", "/home/me/notes/todo.md"]
+  "recentFiles": ["/home/me/notes/comps.md", "/home/me/notes/todo.md"],
+  "showSoftLineBreaks": false
 }
 ```
 
@@ -97,7 +99,7 @@ The list holds up to 10 absolute paths, most recent first, without duplicates. A
 
 ### Supported Markdown
 
-The renderer supports CommonMark plus these GitHub-style extensions: tables with column alignment, strikethrough, task lists, autolinks, and footnotes. This covers headings (ATX and setext), paragraphs, hard line breaks, emphasis, strong text, inline code, fenced and indented code blocks, nested block quotes, nested ordered and unordered lists, horizontal rules, links, and images. Code blocks are monospace with no syntax highlighting. Task list boxes display checked or unchecked and cannot be toggled. Raw HTML is not interpreted and appears as literal text. YAML front matter at the top of a file is not displayed. Emphasis, strong text, strikethrough, and links nested more than 32 levels inside one another keep their text, but the levels past 32 lose their formatting.
+The renderer supports CommonMark plus these GitHub-style extensions: tables with column alignment, strikethrough, task lists, autolinks, and footnotes. This covers headings (ATX and setext), paragraphs, soft and hard line breaks, emphasis, strong text, inline code, fenced and indented code blocks, nested block quotes, nested ordered and unordered lists, horizontal rules, links, and images. Code blocks are monospace with no syntax highlighting. Task list boxes display checked or unchecked and cannot be toggled. Raw HTML is not interpreted and appears as literal text. YAML front matter at the top of a file is not displayed. A soft line break inside a paragraph, list item, quote, setext heading, or footnote is shown as a space, as CommonMark specifies, unless View > Show Soft Line Breaks is checked; then it is shown as a line break, like a hard line break. A line ending in an image's alt text, when the alt text is shown in place of the image, follows the same choice. A line ending inside inline code is always shown as a space. Emphasis, strong text, strikethrough, and links nested more than 32 levels inside one another keep their text, but the levels past 32 lose their formatting.
 
 ### Footnotes
 
@@ -160,14 +162,14 @@ The window title is the file name. The content is the rendered file, scrolled to
 | --- | --- |
 | File | Open... (Ctrl+O), Open Recent, Reload (F5), Close Window (Ctrl+W), Quit (Ctrl+Q) |
 | Edit | Copy (Ctrl+C), Select All (Ctrl+A), Find... (Ctrl+F), Find Next (F3), Find Previous (Shift+F3), Settings... (Ctrl+,) |
-| View | Zoom In (Ctrl++), Zoom Out (Ctrl+-), Reset Zoom (Ctrl+0) |
+| View | Zoom In (Ctrl++), Zoom Out (Ctrl+-), Reset Zoom (Ctrl+0), Show Soft Line Breaks |
 | Help | About mdmd |
 
 Open... from a document window opens the chosen file in a new window. If the chosen file is already open in a window of the same instance, that window is brought to the front instead. Another instance may have the same file open in its own window. Reload re-reads the file and keeps the scroll position as closely as the new content allows. Each window remembers its size on close, and new windows open at the most recently stored size.
 
 ### Links and images
 
-Links never open anything outside the window: no browser, no other application, and no new window, whatever the address. Links are drawn in the link style. Hovering a link shows its address, and the context menu over a link offers Copy Link Address. The one link that acts is a link to a heading in the same file, such as `[see](#key-findings)`, which scrolls to that heading. A heading's anchor is its text lowercased, with punctuation removed and spaces replaced by hyphens; a heading whose anchor repeats an earlier one gets `-1`, `-2`, and so on, in document order. The fragment in the link is matched ignoring case. A link to a heading that does not exist does nothing. The pointer shows a hand over footnote markers and over heading links that lead somewhere, and nowhere else.
+Links never open anything outside the window: no browser, no other application, and no new window, whatever the address. Links are drawn in the link style. Hovering a link shows its address, and the context menu over a link offers Copy Link Address. The one link that acts is a link to a heading in the same file, such as `[see](#key-findings)`, which scrolls to that heading. A heading's anchor is its text lowercased, with punctuation removed and spaces replaced by hyphens; a line break inside a heading counts as a space, whether or not soft line breaks are shown; a heading whose anchor repeats an earlier one gets `-1`, `-2`, and so on, in document order. The fragment in the link is matched ignoring case. A link to a heading that does not exist does nothing. The pointer shows a hand over footnote markers and over heading links that lead somewhere, and nowhere else.
 
 A relative image path is resolved against the folder of the file being displayed. Absolute paths are used as given. Images wider than the text column are scaled down to fit, keeping their proportions, and are never scaled up. Animated images show their first frame. Images with any address other than a local file path, such as http, https, or data addresses, are not fetched and are shown as their alt text.
 
@@ -177,7 +179,7 @@ Clicking a footnote marker opens the popup beside the marker, showing the footno
 
 ### Find
 
-Ctrl+F or Edit > Find... shows a find bar at the bottom of the document window with a text field, Previous and Next buttons, a Match case checkbox, a match count such as "3 of 12", and a close button. Typing highlights every match in the document and scrolls to the first match at or after the current position. The current match is highlighted differently from the others. Enter or F3 moves to the next match and Shift+Enter or Shift+F3 to the previous, both wrapping around. With no matches the field is marked as failed and the count reads "0 of 0". Esc or the close button hides the bar and clears the highlights. Footnote text is not searched.
+Ctrl+F or Edit > Find... shows a find bar at the bottom of the document window with a text field, Previous and Next buttons, a Match case checkbox, a match count such as "3 of 12", and a close button. Typing highlights every match in the document and scrolls to the first match at or after the current position. The current match is highlighted differently from the others. Enter or F3 moves to the next match and Shift+Enter or Shift+F3 to the previous, both wrapping around. With no matches the field is marked as failed and the count reads "0 of 0". Esc or the close button hides the bar and clears the highlights. Footnote text is not searched. Search matches the text as displayed: a soft line break counts as a space while soft line breaks are hidden and as a line break while they are shown, so a phrase that crosses a shown line break does not match.
 
 ### Settings dialog
 
@@ -195,11 +197,13 @@ Buttons: Apply saves the working values and updates every open window, in every 
 
 Selecting a theme in the drop-down loads all its values into the dialog; selecting Default returns to the initial values. This does not take effect in the windows until Apply or OK. Save as Theme asks for a name. A name matching an existing theme, ignoring case, asks whether to overwrite it, and an invalid name is refused with a message. The theme is saved immediately and becomes the active theme. Delete Theme, after a confirmation, removes the active user theme immediately. The dialog's values are unchanged and the active theme becomes none. Delete Theme is unavailable for the Default theme and when no theme is active. The Default theme cannot be deleted or overwritten. Saving or deleting a theme that cannot be written shows an error and changes nothing.
 
-### Automatic reload and zoom
+### Automatic reload, zoom, and soft line breaks
 
 Automatic reload: when the displayed file changes on disk, including when an editor saves by replacing the file, the window reloads as Reload does, keeping the scroll position. If the changed file cannot be read, nothing is shown and the current content stays; an explicit Reload still reports the error.
 
 Zoom: View > Zoom scales all text and spacing in that window by steps of 10 percent from 50 to 300 percent. Images keep their size. Zoom applies to one window and is not saved.
+
+Show Soft Line Breaks: View > Show Soft Line Breaks is a check item, unchecked by default and available in the launcher too. It is not part of the Settings dialog or of themes, and Apply leaves it unchanged. Toggling it immediately updates every open window, footnote popups, and the Settings preview, in every running instance, and the choice is remembered across launches. Copying text where a soft line break is shown copies a line break there.
 
 ## Error Handling
 
@@ -211,14 +215,14 @@ Reload on a file that has been deleted or become unreadable shows an error and l
 
 A missing or unreadable image shows its alt text in place of the image and does not interrupt rendering. A footnote reference with no definition shows as literal text.
 
-If the stored settings cannot be parsed, mdmd starts with Default settings. The same applies while running: if the stored settings become unreadable, every open window switches to the Default settings. The unreadable file is left untouched until the next save, when it is first renamed with a .bak suffix. Stored themes are unaffected. A stored theme that cannot be parsed, or whose name is invalid, is skipped and left untouched. An invalid value for a single property, such as an unparseable color or an out-of-range size, falls back to the Default value for that property only, and the rest of the file is honored. A stored font family that is not installed renders with the Default font for that element, and the stored value is kept. A stored recent files list that cannot be parsed is treated as empty. An invalid stored window size falls back to 900 by 700.
+If the stored settings cannot be parsed, mdmd starts with Default settings. The same applies while running: if the stored settings become unreadable, every open window switches to the Default settings. The unreadable file is left untouched until the next save, when it is first renamed with a .bak suffix. Stored themes are unaffected. A stored theme that cannot be parsed, or whose name is invalid, is skipped and left untouched. An invalid value for a single property, such as an unparseable color or an out-of-range size, falls back to the Default value for that property only, and the rest of the file is honored. A stored font family that is not installed renders with the Default font for that element, and the stored value is kept. A stored recent files list that cannot be parsed is treated as empty. A stored Show Soft Line Breaks value that is missing, or is not true or false, is treated as unchecked. An invalid stored window size falls back to 900 by 700.
 
-If settings cannot be written when Apply or OK is pressed, the dialog stays open and shows an error. The windows keep their previous appearance. If recent files or the window size cannot be written, no error is shown; the change applies until the application exits and is not stored.
+If settings cannot be written when Apply or OK is pressed, the dialog stays open and shows an error. The windows keep their previous appearance. If recent files, the window size, or the Show Soft Line Breaks choice cannot be written, no error is shown; the change applies until the application exits and is not stored.
 
 Text that comes from outside the application, such as file names and paths, link addresses, image alt text, and theme names, is always shown literally in messages, tooltips, menus, and lists. It is never interpreted as formatting, links, or keyboard shortcuts, whatever characters it contains.
 
 ## Version and Scope
 
-Version 1.0. Out of scope: editing of any kind, drag-and-drop, tabs or multiple files per window, an outline or table of contents, syntax highlighting, printing and PDF export, import and export of settings or themes, fetching remote images, and packaging or distribution.
+Version 1.1, adding the Show Soft Line Breaks choice. Out of scope: editing of any kind, drag-and-drop, tabs or multiple files per window, an outline or table of contents, syntax highlighting, printing and PDF export, import and export of settings or themes, fetching remote images, and packaging or distribution.
 
 Defaults chosen without explicit direction, to be overruled as needed: Open... from a document window opens a new window. Footnote definitions are not shown at the end of the document. Raw HTML appears as literal text and YAML front matter is hidden. Spacing between adjacent elements is additive. Remote images are not fetched. Window size is the only window state remembered; there is one stored size, set by whichever window closed last. Files over 20 MB are refused.

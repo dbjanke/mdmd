@@ -10,6 +10,7 @@ from mdmd.core.document import (
     LineBreak,
     Link,
     NoteRef,
+    SoftBreak,
     Strikethrough,
     Strong,
     Text,
@@ -27,7 +28,7 @@ def plain_text(inlines: Iterable[Inline]) -> str:
                 parts.append(plain_text(children))
             case Image(_, alt):
                 parts.append(alt)
-            case LineBreak():
+            case LineBreak() | SoftBreak():
                 parts.append(" ")
             case NoteRef():
                 pass

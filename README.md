@@ -10,6 +10,7 @@ their marker, and you can adjust every element's appearance with a live preview.
   "References" list also open as popups
 - Find (Ctrl+F) with match highlighting, per-window zoom, and automatic reload when the file changes
 - Themes: save your appearance settings under a name and switch between them
+- Optionally keep single line breaks from the file instead of joining lines into one paragraph
 - Links never open anything: hover to see the address, right-click to copy it.
   Links to headings in the same file scroll to that heading.
 
@@ -55,6 +56,11 @@ recent files, and applying settings in one restyles the windows of all of them.
 
 Click a footnote marker to see the note. Click elsewhere or press Esc to close it.
 
+Markdown normally joins lines that are separated by a single line break into one
+paragraph. If you write notes one line at a time, check View > Show Soft Line
+Breaks to keep those line breaks. The choice applies to every open window and is
+remembered; it is in the View menu rather than in Settings, and themes don't change it.
+
 In Settings, pick an element on the left, change its properties, and watch the
 preview. Apply or OK restyles every open window, in every running mdmd; Cancel discards changes made
 since the last Apply. The built-in Default theme cannot be changed, so choosing it
@@ -62,7 +68,7 @@ always returns to the original look.
 
 ## Where settings are stored
 
-- `~/.config/mdmd/settings.json`: appearance, active theme, window size, recent files
+- `~/.config/mdmd/settings.json`: appearance, active theme, window size, recent files, Show Soft Line Breaks
 - `~/.config/mdmd/themes/`: one file per saved theme
 
 `$XDG_CONFIG_HOME` is used instead of `~/.config` when it is set. If the settings

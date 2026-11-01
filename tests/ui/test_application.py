@@ -239,6 +239,73 @@ class TestSettings:
         assert app.settings_dialog is None
 
 
+class TestSoftLineBreaks:
+    def test_toggle_updates_every_window_and_persists(
+        self, make_app: MakeApp, write_md: WriteMd, config_dir: Path
+    ) -> None:
+        app = make_app()
+        app.start([write_md("a.md", "one\ntwo"), write_md("b.md", "three\nfour")])
+        launcher = app.open_launcher()
+        app.windows[0].soft_line_breaks_action.trigger()
+        for window in app.windows:
+            assert window.soft_line_breaks_action.isChecked()
+        texts = [w.document.view.document().toPlainText() for w in app.windows if w.document is not None]
+        assert texts == ["one\ntwo", "three\nfour"]
+        assert stored(config_dir)["showSoftLineBreaks"] is True
+
+        launcher.soft_line_breaks_action.trigger()
+        texts = [w.document.view.document().toPlainText() for w in app.windows if w.document is not None]
+        assert texts == ["one two", "three four"]
+        assert stored(config_dir)["showSoftLineBreaks"] is False
+
+    def test_the_choice_survives_restart_and_applies_to_new_windows(self, make_app: MakeApp, write_md: WriteMd) -> None:
+        make_app().set_show_soft_line_breaks(True)
+        app = make_app()
+        app.start([write_md("a.md", "one\ntwo")])
+        window = app.windows[0]
+        assert window.soft_line_breaks_action.isChecked()
+        assert window.document is not None
+        assert window.document.view.document().toPlainText() == "one\ntwo"
+
+    def test_settings_apply_does_not_reset_it(self, make_app: MakeApp, config_dir: Path) -> None:
+        app = make_app()
+        app.set_show_soft_line_breaks(True)
+        app.apply_settings(SettingsDraft(DEFAULT_STYLE.with_value("body", "size", 20), None))
+        assert app.show_soft_line_breaks
+        assert stored(config_dir)["showSoftLineBreaks"] is True
+
+    def test_a_launcher_toggled_first_opens_its_file_with_the_choice(
+        self, make_app: MakeApp, write_md: WriteMd
+    ) -> None:
+        app = make_app()
+        launcher = app.open_launcher()
+        launcher.soft_line_breaks_action.trigger()
+        app.open_path(write_md("a.md", "one\ntwo"), launcher)
+        assert launcher.document is not None
+        assert launcher.document.view.document().toPlainText() == "one\ntwo"
+
+    def test_other_settings_changes_do_not_render_windows_again(self, make_app: MakeApp, write_md: WriteMd) -> None:
+        app = make_app()
+        app.start([write_md("a.md", "one\ntwo")])
+        panel = app.windows[0].document
+        assert panel is not None
+        shown = panel.view.document()
+        app.start([write_md("b.md", "b")])  # changes the recent files
+        assert panel.view.document() is shown
+
+    @needs_permissions
+    def test_save_failure_keeps_the_choice_for_the_session_without_an_error(
+        self, make_app: MakeApp, config_dir: Path, prompts: FakePrompts
+    ) -> None:
+        app = make_app()
+        launcher = app.open_launcher()
+        with read_only(config_dir):
+            launcher.soft_line_breaks_action.trigger()
+        assert prompts.errors == []
+        assert app.show_soft_line_breaks
+        assert launcher.soft_line_breaks_action.isChecked()
+
+
 class TestEdgeCases:
     def test_settings_dialog_closes_with_the_last_window(
         self, qtbot: QtBot, make_app: MakeApp, write_md: WriteMd
@@ -372,6 +439,18 @@ class TestSeveralProcesses:
         qtbot.waitUntil(lambda: body_size() == 20, timeout=3000)
         assert second.style.number("body", "size") == 20
 
+    def test_toggling_in_one_updates_the_others_windows(
+        self, qtbot: QtBot, make_app: MakeApp, write_md: WriteMd
+    ) -> None:
+        first, second = make_app(), make_app()
+        second.start([write_md("b.md", "one\ntwo")])
+        window = second.windows[0]
+        assert window.document is not None
+        document = window.document
+        first.set_show_soft_line_breaks(True)
+        qtbot.waitUntil(lambda: document.view.document().toPlainText() == "one\ntwo", timeout=3000)
+        assert window.soft_line_breaks_action.isChecked()
+
     def test_recent_files_are_shared_and_never_clobbered(
         self, qtbot: QtBot, make_app: MakeApp, write_md: WriteMd, config_dir: Path
     ) -> None:
@@ -460,6 +539,23 @@ class TestSettingsDamagedWhileRunning:
         qtbot.waitUntil(lambda: body_size() == DEFAULT_STYLE.number("body", "size"), timeout=3000)
         assert app.style == DEFAULT_STYLE
         assert settings_file.read_text() == "{ a typo"  # nothing is written until the next save
+
+    def test_soft_line_breaks_fall_back_to_hidden(
+        self, qtbot: QtBot, make_app: MakeApp, write_md: WriteMd, config_dir: Path
+    ) -> None:
+        app = make_app()
+        app.set_show_soft_line_breaks(True)
+        app.start([write_md("a.md", "one\ntwo")])
+        window = app.windows[0]
+        assert window.document is not None
+        document = window.document
+        assert document.view.document().toPlainText() == "one\ntwo"
+        settings_file = config_dir / "settings.json"
+        replacement = settings_file.with_suffix(".tmp")
+        replacement.write_text("{ a typo")
+        replacement.replace(settings_file)
+        qtbot.waitUntil(lambda: document.view.document().toPlainText() == "one two", timeout=3000)
+        assert not window.soft_line_breaks_action.isChecked()
 
         app.open_path(write_md("b.md", "b"), app.windows[0])
         assert (config_dir / "settings.json.bak").read_text() == "{ a typo"

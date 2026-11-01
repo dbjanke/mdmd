@@ -58,7 +58,12 @@ class LineBreak:
     """A hard line break inside a block."""
 
 
-type Inline = Text | Emphasis | Strong | Strikethrough | InlineCode | Link | Image | NoteRef | LineBreak
+@dataclass(frozen=True)
+class SoftBreak:
+    """A single line ending inside a block. Shown as a space, or as a line break when the user asks for that."""
+
+
+type Inline = Text | Emphasis | Strong | Strikethrough | InlineCode | Link | Image | NoteRef | LineBreak | SoftBreak
 
 # ----------------------------------------------------------------- block content
 

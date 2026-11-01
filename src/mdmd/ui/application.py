@@ -14,10 +14,17 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Qt, Signal
 
 from mdmd.core.app_settings import AppSettings
-from mdmd.core.settings_changes import appearance_applied, recent_file_forgotten, recent_file_opened, window_resized
+from mdmd.core.settings_changes import (
+    appearance_applied,
+    recent_file_forgotten,
+    recent_file_opened,
+    soft_line_breaks_shown,
+    window_resized,
+)
 from mdmd.core.settings_draft import SettingsDraft
 from mdmd.core.style import Style
 from mdmd.core.themes import Theme, ThemeLibrary
+from mdmd.core.view_preferences import ViewPreferences
 from mdmd.logs import get_logger, log_event
 from mdmd.storage.markdown_files import FileOpenError, OpenFailure, load_document
 from mdmd.storage.settings_store import SettingsStore
@@ -79,6 +86,14 @@ class Application(QObject):
     @property
     def window_size(self) -> tuple[int, int]:
         return self._shared.settings.window_size
+
+    @property
+    def view_preferences(self) -> ViewPreferences:
+        return self._shared.settings.view_preferences
+
+    @property
+    def show_soft_line_breaks(self) -> bool:
+        return self._shared.settings.show_soft_line_breaks
 
     @property
     def windows(self) -> tuple[MainWindow, ...]:
@@ -162,14 +177,22 @@ class Application(QObject):
 
     def _settings_changed(self, previous: AppSettings, current: AppSettings) -> None:
         """Bring every window up to date with settings saved here or in another process."""
-        if current.style != previous.style:
+        if current.view_preferences != previous.view_preferences:
             for window in self._windows:
-                window.apply_style(current.style)
+                window.apply_view_preferences(current.view_preferences)
         if current.recent_files != previous.recent_files:
             for window in self._windows:
                 window.refresh_recent_files()
+        # The dialog previews its own draft style; only the soft line break choice comes from outside it.
+        if current.show_soft_line_breaks != previous.show_soft_line_breaks and self._settings_dialog is not None:
+            self._settings_dialog.render_preview()
 
     # -------------------------------------------------------------- settings and themes
+
+    def set_show_soft_line_breaks(self, shown: bool) -> None:
+        # Like the window size, a failed save keeps the choice for this session and isn't reported.
+        self._shared.change_quietly(soft_line_breaks_shown(shown))
+        log_event(_log, "soft_line_breaks_changed")
 
     def show_settings(self, requester: MainWindow) -> None:
         if self._settings_dialog is None:

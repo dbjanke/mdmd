@@ -34,6 +34,9 @@ env -u GSETTINGS_SCHEMA_DIR -u GTK_PATH -u GTK_EXE_PREFIX -u GIO_MODULE_DIR XDG_
 - Check that a race or edge-case test fails with the fix removed before trusting it. The settings-lock test lost updates in 14 of 15 trial runs without the lock.
 - Give parametrized hostile-input tests short `ids=`, or pytest prints the whole input.
 - If the full suite crashes but each file passes alone, look for a Qt object freed too early (`pytest -v` shows which test was running).
+- Timing tests need a wide margin: branch coverage (`--cov-branch`) makes Python about 3× slower. Time the specific algorithm (as `test_slugs` does), not the whole parser.
+- To compare behavior with `main`, use a throwaway worktree (`git worktree add <scratchpad>/main-wt main`), not `git stash` (a no-op when the tree is clean).
+- Scratch scripts that import `tests.ui.conftest` (for `FakePrompts`) need `PYTHONPATH=.`.
 
 ## Layout
 
@@ -41,12 +44,13 @@ The dependency direction is `ui` → `storage` → `core`. `core` never imports 
 
 - `src/mdmd/core/`: pure logic, tested without Qt
   - `document.py`: the document model (frozen dataclasses: blocks and inlines)
-  - `parser.py`: markdown-it tokens → `Document`; footnotes are `NoteRef`s keyed into `Document.notes`
+  - `parser.py`: markdown-it tokens → `Document`; footnotes are `NoteRef`s keyed into `Document.notes`; soft breaks stay `SoftBreak`s so the renderer decides space vs line break (`RenderOptions.show_soft_line_breaks`) without reparsing
   - `citations.py`: turns `[N]` into `NoteRef`s when the document ends with a Sources-style heading plus an ordered list
   - `style.py`: element/property schema, validation, lenient parsing (`parse_style` falls back per property)
   - `default_style.py`: the Default theme's values (data only)
   - `cascade.py`: inheritance rules (paragraphs in lists/quotes, table font fallback, popup style), additive gaps
   - `themes.py`, `settings_draft.py`: theme naming rules, the library, and the settings dialog's working state
+  - `view_preferences.py`: `ViewPreferences`, what decides how every window draws a document (working style, soft line breaks); `AppSettings.view_preferences` derives it, and windows and panels take it whole
   - `app_settings.py`, `recent.py`, `search.py`, `zoom.py`, `links.py`, `popup_placement.py`: small focused rules
   - `settings_changes.py`: each way the settings change, as a named `SettingsChange` function (`recent_file_opened`, `theme_deleted`, …)
 - `src/mdmd/storage/`: files on disk (atomic JSON writes, settings file with `.bak` handling, one file per theme, reading Markdown with a size limit)
@@ -80,10 +84,13 @@ The dependency direction is `ui` → `storage` → `core`. `core` never imports 
 - Delayed callbacks must be tied to their widget: `QTimer.singleShot(0, self, fn)`.
 - Connecting a Qt signal straight to a PySide `Signal(object)` can fail at runtime; use a lambda.
 - Treat file names, paths, link addresses and document text as untrusted. Qt tooltips and message boxes render anything that looks like HTML as HTML, and menus treat `&` as a shortcut marker. Route such text through `ui/untrusted_text.py` or `prompts.plain_message_box`.
-- Each launch is its own process (single-instance was removed: its socket was an attack surface). Change settings only via `SharedSettings.change(...)` (raises on failure; use it for user actions like Apply) or `change_quietly(...)` (logs, keeps the change in memory; use it for recent files and window size), passing a change from `core/settings_changes.py`. Both do a locked read-merge-write; never write the settings file directly.
+- Each launch is its own process (single-instance was removed: its socket was an attack surface). Change settings only via `SharedSettings.change(...)` (raises on failure; use it for user actions like Apply) or `change_quietly(...)` (logs, keeps the change in memory; use it for recent files, window size, and Show Soft Line Breaks, which should keep working for the session even if saving fails), passing a change from `core/settings_changes.py`. Both do a locked read-merge-write; never write the settings file directly.
 - `FileWatcher` records the new state before it emits `changed`. Call `accept_current()` only after writing or reloading the watched file yourself, so the watcher doesn't report that change back.
 - Open documents with `storage.markdown_files.load_document`, which turns every read or parse failure into `FileOpenError`. Never call `parse_markdown` on file content and let its errors escape.
 - Recursive walks over inline content stay bounded only because the parser flattens past `MAX_INLINE_DEPTH`. Keep that cap if you change the parser.
+- A new `Inline` type must be handled in every walker over inline content: `inline_text.plain_text`, `citations._Linker`, and the renderer's `_inlines` and `_has_image`.
+- Never insert text containing `"\n"` into a `QTextDocument`: it starts a new paragraph. Use `LINE_SEPARATOR`, or a space for soft breaks (image alt text can hold raw newlines).
+- For a checkable `QAction` that mirrors a setting, connect `triggered` (user clicks only) and update it with `setChecked`; `toggled` would loop back into a save.
 - Don't name properties or methods after `QWidget`/`QObject` methods (`find`, `children`, `parent`, `size`, …). mypy strict reports the override; heed it.
 - `CLAUDE-SECURITY-<timestamp>/` folders are Claude Security scan reports. Each has its own `.gitignore`; don't edit them or commit them.
 - VS Code installed as a snap sets `GSETTINGS_SCHEMA_DIR`, `GTK_PATH`, and `XDG_DATA_DIRS`, which crash Qt (and GTK) at startup in its terminal. Tests are unaffected (offscreen). To run the app from that terminal, see the README's Troubleshooting section.
@@ -99,3 +106,4 @@ The dependency direction is `ui` → `storage` → `core`. `core` never imports 
 - Single-instance was dropped. Each launch is its own process; the same file may be open in two processes, and that's acceptable.
 - Nothing in a footnote popup is clickable: inner markers show as plain `[n]` text.
 - Reopening a file that's already open brings its window forward and moves it to the top of Recent Files.
+- Show Soft Line Breaks is a View menu toggle, off by default (CommonMark behavior). It isn't part of the Settings dialog or themes, and the settings sample deliberately has no soft breaks.

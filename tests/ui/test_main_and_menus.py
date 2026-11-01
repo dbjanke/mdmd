@@ -44,6 +44,15 @@ class TestMenus:
         app.open_path(write_md("a.md", "a"), launcher)
         assert actions["Reload"].isEnabled()  # type: ignore[attr-defined]
 
+    def test_show_soft_line_breaks_is_an_unchecked_toggle_also_in_the_launcher(self, make_app: MakeApp) -> None:
+        launcher = make_app().open_launcher()
+        action = launcher.soft_line_breaks_action
+        assert action is actions_by_text(launcher)["Show Soft Line Breaks"]
+        assert action.isCheckable()
+        assert not action.isChecked()
+        assert action.isEnabled()
+        assert action.shortcuts() == []
+
     def test_shortcuts(self, make_app: MakeApp) -> None:
         actions = actions_by_text(make_app().open_launcher())
         expected = {
