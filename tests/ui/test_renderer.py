@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
@@ -19,6 +19,7 @@ from mdmd.core.default_style import DEFAULT_STYLE
 from mdmd.core.document import Document, Link, Paragraph, Text
 from mdmd.core.parser import parse_markdown
 from mdmd.core.style import Style
+from mdmd.ui import renderer
 from mdmd.ui.document_view import char_format_at
 from mdmd.ui.fonts import FontResolver
 from mdmd.ui.renderer import (
@@ -115,6 +116,56 @@ class TestText:
         block_format = block_with_text(render("text", fonts, style).document, "text").blockFormat()
         assert block_format.lineHeightType() == QTextBlockFormat.LineHeightTypes.FixedHeight.value
         assert block_format.lineHeight() == pytest.approx(px(11 * 2.0))
+
+
+class LayoutCountingDocument(QTextDocument):
+    """Counts how often Qt lays the document out."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.layout_passes = 0
+        self.documentLayout().documentSizeChanged.connect(self._count)
+
+    def _count(self, _size: object) -> None:
+        self.layout_passes += 1
+
+
+@pytest.fixture
+def count_layouts(monkeypatch: pytest.MonkeyPatch) -> Callable[[RenderedDocument], int]:
+    """Makes the renderer build counting documents; returns how to read a document's count."""
+    monkeypatch.setattr(renderer, "QTextDocument", LayoutCountingDocument)
+
+    def passes(rendered: RenderedDocument) -> int:
+        assert isinstance(rendered.document, LayoutCountingDocument)
+        return rendered.document.layout_passes
+
+    return passes
+
+
+class TestBuildSpeed:
+    """Laying out after every change made large files several times slower to open and resize."""
+
+    def test_the_document_is_laid_out_once_however_long_it_is(
+        self, fonts: FontResolver, count_layouts: Callable[[RenderedDocument], int]
+    ) -> None:
+        section = "## Notes\n\none\ntwo *three*\n\n- a\n- b\n\n> quote\n\n| a |\n|---|\n| b |\n\n"
+        assert count_layouts(render(section, fonts)) == count_layouts(render(section * 20, fonts))
+
+    def test_fitting_images_lays_out_once_however_many_there_are(
+        self, fonts: FontResolver, count_layouts: Callable[[RenderedDocument], int], tmp_path: Path
+    ) -> None:
+        image = QImage(400, 100, QImage.Format.Format_RGB32)
+        image.fill(QColor("red"))
+        assert image.save(str(tmp_path / "wide.png"))
+
+        def passes_to_fit(image_count: int) -> int:
+            rendered = render("![a](wide.png)\n\n" * image_count, fonts, base_dir=tmp_path)
+            assert len(rendered.images) == image_count
+            before = count_layouts(rendered)
+            rendered.fit_images(200)
+            return count_layouts(rendered) - before
+
+        assert passes_to_fit(1) == passes_to_fit(10)
 
 
 class TestSoftLineBreaks:

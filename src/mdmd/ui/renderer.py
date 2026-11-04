@@ -10,6 +10,8 @@ margin instead.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -111,6 +113,20 @@ class PlacedImage:
     indent_px: float
 
 
+@contextmanager
+def _laid_out_once(document: QTextDocument) -> Iterator[None]:
+    """Group changes so Qt lays the document out once at the end, not after every change.
+
+    Laying out after each insert made large documents several times slower to build.
+    """
+    cursor = QTextCursor(document)
+    cursor.beginEditBlock()
+    try:
+        yield
+    finally:
+        cursor.endEditBlock()
+
+
 @dataclass
 class RenderedDocument:
     document: QTextDocument
@@ -119,16 +135,17 @@ class RenderedDocument:
 
     def fit_images(self, text_width: float) -> None:
         """Scale images wider than the text column down to fit; never scale up."""
-        for image in self.images:
-            natural = image.natural_size
-            width = min(float(natural.width()), max(1.0, text_width - image.indent_px))
-            cursor = QTextCursor(self.document)
-            cursor.setPosition(image.position)
-            cursor.movePosition(QTextCursor.MoveOperation.NextCharacter, QTextCursor.MoveMode.KeepAnchor)
-            fmt = cursor.charFormat().toImageFormat()
-            fmt.setWidth(width)
-            fmt.setHeight(natural.height() * width / natural.width())
-            cursor.setCharFormat(fmt)
+        with _laid_out_once(self.document):
+            for image in self.images:
+                natural = image.natural_size
+                width = min(float(natural.width()), max(1.0, text_width - image.indent_px))
+                cursor = QTextCursor(self.document)
+                cursor.setPosition(image.position)
+                cursor.movePosition(QTextCursor.MoveOperation.NextCharacter, QTextCursor.MoveMode.KeepAnchor)
+                fmt = cursor.charFormat().toImageFormat()
+                fmt.setWidth(width)
+                fmt.setHeight(natural.height() * width / natural.width())
+                cursor.setCharFormat(fmt)
 
 
 def render_document(
@@ -295,8 +312,9 @@ class _Writer:
     # ------------------------------------------------------------ blocks
 
     def render(self) -> RenderedDocument:
-        self._blocks(self._source.blocks, _Context())
-        self._collapse_fresh_block()
+        with _laid_out_once(self._doc):
+            self._blocks(self._source.blocks, _Context())
+            self._collapse_fresh_block()
         return self._result
 
     def _blocks(self, blocks: tuple[Block, ...], ctx: _Context) -> None:

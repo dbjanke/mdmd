@@ -77,6 +77,7 @@ The dependency direction is `ui` → `storage` → `core`. `core` never imports 
 - Units: fonts use `setPointSizeF`; margins and fixed line heights use 96-dpi pixels (`PX_PER_PT = 96/72`). Line spacing uses `FixedHeight` (a multiple of the font size), or `MinimumHeight` when the block holds an image.
 - Zoom re-renders with scaled sizes. `QTextEdit.zoomIn` would not work, because every format has an explicit size.
 - Raw text positions (`toRawText`) map one-to-one onto document positions; find relies on this.
+- Without an edit block, Qt lays the document out again after every change. Wrap bulk changes in `_laid_out_once(document)`, as building and `fit_images` do; `TestBuildSpeed` counts layout passes to pin it.
 
 ## Gotchas
 
