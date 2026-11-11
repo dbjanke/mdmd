@@ -5,6 +5,7 @@ from enum import Enum
 from pathlib import Path
 
 from PySide6.QtCore import QRect, QTimer
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from mdmd.core.cascade import popup_style
@@ -116,6 +117,10 @@ class DocumentPanel(QWidget):
 
     def reset_zoom(self) -> None:
         self._set_zoom(ZOOM_DEFAULT_PERCENT)
+
+    def copy_path(self) -> None:
+        """Copy the path the file was opened from, even if it has since moved or gone."""
+        QGuiApplication.clipboard().setText(str(self._path))
 
     def _set_zoom(self, percent: int) -> None:
         if percent != self._zoom:

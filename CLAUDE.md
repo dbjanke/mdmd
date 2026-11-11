@@ -3,7 +3,12 @@
 Working notes for developing mdmd. Follow `AGENTS.md` for general principles.
 `DESIGN.md` is the behavior spec and stays free of implementation detail (another
 team could build it in a different stack); architecture notes belong here.
+It has no version line or changelog (git has the history); keep its Scope section's
+out-of-scope list and judgment-call defaults current.
+When tests pin a user-visible choice another implementation could make differently
+(e.g. whether symlinks are resolved), state that choice in DESIGN.md.
 `README.md` is for people who download and use the project.
+A user-facing change updates DESIGN.md and README.md; README's keys table only lists shortcuts, so items without one get a sentence.
 
 ## Stack
 
@@ -31,7 +36,8 @@ env -u GSETTINGS_SCHEMA_DIR -u GTK_PATH -u GTK_EXE_PREFIX -u GIO_MODULE_DIR XDG_
 - Keep Qt objects that own pending events (sockets, servers, timers) alive until `QApplication.processEvents()` runs at teardown. Freeing them earlier segfaults later, in an unrelated test.
 - Two `Application`s on one `config_dir` (the `make_app` fixture called twice) stand in for two mdmd processes. Use `qtbot.waitUntil` for changes that arrive through the file watchers.
 - Simulate an unwritable settings or themes folder with `read_only(dir)` plus `@needs_permissions` (tests/ui/conftest.py). A folder in place of `settings.json` is treated as a damaged file and set aside as `.bak`, not as a write failure.
-- Check that a race or edge-case test fails with the fix removed before trusting it. The settings-lock test lost updates in 14 of 15 trial runs without the lock.
+- Check that a race or edge-case test fails with the fix removed before trusting it. The settings-lock test lost updates in 14 of 15 trial runs without the lock. For a new feature, swap in plausible wrong versions (e.g. a resolved instead of as-given path) and confirm a test fails for each.
+- The clipboard persists across tests. Put a placeholder on it before triggering a copy, then assert (see `copy_file_path` in test_main_and_menus.py).
 - Give parametrized hostile-input tests short `ids=`, or pytest prints the whole input.
 - If the full suite crashes but each file passes alone, look for a Qt object freed too early (`pytest -v` shows which test was running).
 - Timing tests need a wide margin: branch coverage (`--cov-branch`) makes Python about 3× slower. Time the specific algorithm (as `test_slugs` does), not the whole parser.
@@ -59,7 +65,7 @@ The dependency direction is `ui` → `storage` → `core`. `core` never imports 
   - `text_objects.py`: footnote pills drawn as custom text objects
   - `document_view.py`: `QTextBrowser` subclass for marker clicks, heading links, Copy Link Address, plain-text copy, find highlights
   - `document_panel.py`: one document with its find bar, popup, zoom, reload, and file watcher
-  - `main_window.py`: launcher or document window, plus menus. `WindowHost` is the narrow interface it needs.
+  - `main_window.py`: launcher or document window, plus menus. `WindowHost` is the narrow interface it needs. Menu items that need a document use `_document_action(menu, text, lambda d: d.method())`, which greys them out in the launcher; the behavior goes in a `DocumentPanel` method.
   - `application.py`: owns the windows and decides where files open; reacts to `SharedSettings` signals
   - `shared_settings.py`: `SharedSettings` owns settings and themes, saves changes, watches for changes from other processes, and emits `settings_changed(previous, current)` / `themes_changed`
   - `settings_dialog.py`, `property_editors.py`: the settings UI (`SettingsHost` interface)
@@ -87,6 +93,7 @@ The dependency direction is `ui` → `storage` → `core`. `core` never imports 
 - Treat file names, paths, link addresses and document text as untrusted. Qt tooltips and message boxes render anything that looks like HTML as HTML, and menus treat `&` as a shortcut marker. Route such text through `ui/untrusted_text.py` or `prompts.plain_message_box`.
 - Each launch is its own process (single-instance was removed: its socket was an attack surface). Change settings only via `SharedSettings.change(...)` (raises on failure; use it for user actions like Apply) or `change_quietly(...)` (logs, keeps the change in memory; use it for recent files, window size, and Show Soft Line Breaks, which should keep working for the session even if saving fails), passing a change from `core/settings_changes.py`. Both do a locked read-merge-write; never write the settings file directly.
 - `FileWatcher` records the new state before it emits `changed`. Call `accept_current()` only after writing or reloading the watched file yourself, so the watcher doesn't report that change back.
+- A document's path is `os.path.abspath` of what was given (`..` normalized, symlinks kept), set once in `Application.open_path`. Recent Files, finding the already-open window, and Copy File Path all use that same string; don't resolve it.
 - Open documents with `storage.markdown_files.load_document`, which turns every read or parse failure into `FileOpenError`. Never call `parse_markdown` on file content and let its errors escape.
 - Recursive walks over inline content stay bounded only because the parser flattens past `MAX_INLINE_DEPTH`. Keep that cap if you change the parser.
 - A new `Inline` type must be handled in every walker over inline content: `inline_text.plain_text`, `citations._Linker`, and the renderer's `_inlines` and `_has_image`.

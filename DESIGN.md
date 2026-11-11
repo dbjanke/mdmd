@@ -95,7 +95,7 @@ A null active theme means the working settings are not tied to any theme. An act
 
 ### Recent files
 
-The list holds up to 10 absolute paths, most recent first, without duplicates. A file is added, or moved to the top, each time it is opened successfully, including when it is already open and its window is brought to the front instead.
+The list holds up to 10 absolute paths, most recent first, without duplicates. A file is added, or moved to the top, each time it is opened successfully, including when it is already open and its window is brought to the front instead. A path is recorded as it was given, made absolute against the folder mdmd was started from, with `.` and `..` removed; a symbolic link is kept as the link, not the file it points to.
 
 ### Supported Markdown
 
@@ -160,12 +160,12 @@ The window title is the file name. The content is the rendered file, scrolled to
 
 | Menu | Items |
 | --- | --- |
-| File | Open... (Ctrl+O), Open Recent, Reload (F5), Close Window (Ctrl+W), Quit (Ctrl+Q) |
+| File | Open... (Ctrl+O), Open Recent, Reload (F5), Copy File Path, Close Window (Ctrl+W), Quit (Ctrl+Q) |
 | Edit | Copy (Ctrl+C), Select All (Ctrl+A), Find... (Ctrl+F), Find Next (F3), Find Previous (Shift+F3), Settings... (Ctrl+,) |
 | View | Zoom In (Ctrl++), Zoom Out (Ctrl+-), Reset Zoom (Ctrl+0), Show Soft Line Breaks |
 | Help | About mdmd |
 
-Open... from a document window opens the chosen file in a new window. If the chosen file is already open in a window of the same instance, that window is brought to the front instead. Another instance may have the same file open in its own window. Reload re-reads the file and keeps the scroll position as closely as the new content allows. Each window remembers its size on close, and new windows open at the most recently stored size.
+Open... from a document window opens the chosen file in a new window. If the chosen file is already open in a window of the same instance, that window is brought to the front instead. Another instance may have the same file open in its own window. Reload re-reads the file and keeps the scroll position as closely as the new content allows. Copy File Path puts the document's path on the clipboard as plain text, in the form recent files record it, exactly as it is with no quoting or escaping, whatever characters it contains. There is no confirmation. It copies the path the file was opened from even if the file has since been moved or deleted. Each window remembers its size on close, and new windows open at the most recently stored size.
 
 ### Links and images
 
@@ -221,8 +221,8 @@ If settings cannot be written when Apply or OK is pressed, the dialog stays open
 
 Text that comes from outside the application, such as file names and paths, link addresses, image alt text, and theme names, is always shown literally in messages, tooltips, menus, and lists. It is never interpreted as formatting, links, or keyboard shortcuts, whatever characters it contains.
 
-## Version and Scope
+## Scope
 
-Version 1.1, adding the Show Soft Line Breaks choice. Out of scope: editing of any kind, drag-and-drop, tabs or multiple files per window, an outline or table of contents, syntax highlighting, printing and PDF export, import and export of settings or themes, fetching remote images, and packaging or distribution.
+Out of scope: editing of any kind, drag-and-drop, tabs or multiple files per window, an outline or table of contents, syntax highlighting, printing and PDF export, import and export of settings or themes, fetching remote images, and packaging or distribution.
 
 Defaults chosen without explicit direction, to be overruled as needed: Open... from a document window opens a new window. Footnote definitions are not shown at the end of the document. Raw HTML appears as literal text and YAML front matter is hidden. Spacing between adjacent elements is additive. Remote images are not fetched. Window size is the only window state remembered; there is one stored size, set by whichever window closed last. Files over 20 MB are refused.

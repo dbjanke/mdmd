@@ -144,6 +144,7 @@ class MainWindow(QMainWindow):
         self._recent_menu = file_menu.addMenu("Open &Recent")
         self._recent_menu.aboutToShow.connect(self._fill_recent_menu)
         self._document_action(file_menu, "Re&load", lambda _d: self._reload(), "F5")
+        self._document_action(file_menu, "Copy File &Path", lambda d: d.copy_path())
         file_menu.addSeparator()
         self._action(file_menu, "&Close Window", self.close, "Ctrl+W")
         self._action(file_menu, "&Quit", self._host.quit, "Ctrl+Q")

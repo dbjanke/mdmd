@@ -4,6 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QApplication
 
 from mdmd import __main__ as entry
@@ -37,12 +38,23 @@ class TestMenus:
         app = make_app()
         launcher = app.open_launcher()
         actions = actions_by_text(launcher)
-        for name in ("Reload", "Copy", "Select All", "Find…", "Find Next", "Zoom In", "Reset Zoom"):
+        document_items = (
+            "Reload",
+            "Copy File Path",
+            "Copy",
+            "Select All",
+            "Find…",
+            "Find Next",
+            "Zoom In",
+            "Reset Zoom",
+        )
+        for name in document_items:
             assert not actions[name].isEnabled(), name  # type: ignore[attr-defined]
         for name in ("Open…", "Settings…", "Quit", "About mdmd"):
             assert actions[name].isEnabled(), name  # type: ignore[attr-defined]
         app.open_path(write_md("a.md", "a"), launcher)
-        assert actions["Reload"].isEnabled()  # type: ignore[attr-defined]
+        for name in document_items:
+            assert actions[name].isEnabled(), name  # type: ignore[attr-defined]
 
     def test_show_soft_line_breaks_is_an_unchecked_toggle_also_in_the_launcher(self, make_app: MakeApp) -> None:
         launcher = make_app().open_launcher()
@@ -105,6 +117,83 @@ class TestMenus:
         window = app.open_launcher()
         actions_by_text(window)["Settings…"].trigger()  # type: ignore[attr-defined]
         assert app.settings_dialog is not None and app.settings_dialog.isVisible()
+
+
+def copy_file_path(window: MainWindow) -> str:
+    """Trigger File > Copy File Path and return what landed on the clipboard."""
+    clipboard = QGuiApplication.clipboard()
+    clipboard.setText("stale")  # the clipboard outlives each test
+    actions_by_text(window)["Copy File Path"].trigger()  # type: ignore[attr-defined]
+    return clipboard.text()
+
+
+class TestCopyFilePath:
+    def test_sits_after_reload_with_no_shortcut(self, make_app: MakeApp) -> None:
+        window = make_app().open_launcher()
+        file_menu = window.menuBar().actions()[0].menu()
+        names = [a.text().replace("&", "") for a in file_menu.actions() if not a.isSeparator()]  # type: ignore[union-attr]
+        assert names == ["Open…", "Open Recent", "Reload", "Copy File Path", "Close Window", "Quit"]
+        assert actions_by_text(window)["Copy File Path"].shortcuts() == []  # type: ignore[attr-defined]
+
+    @pytest.mark.parametrize(
+        "typed",
+        ["a b.md", "./a b.md", "sub/../a b.md", "sub//../a b.md"],
+        ids=["relative", "dot", "dotdot", "double-slash"],
+    )
+    def test_copies_the_absolute_path_recent_files_records(
+        self, make_app: MakeApp, write_md: WriteMd, monkeypatch: pytest.MonkeyPatch, typed: str
+    ) -> None:
+        path = write_md("a b.md", "a")
+        (path.parent / "sub").mkdir()
+        monkeypatch.chdir(path.parent)
+        app = make_app()
+        app.start([Path(typed)])
+        assert copy_file_path(app.windows[0]) == app.recent_files()[0] == str(path)
+
+    def test_keeps_a_symlink_as_given(self, make_app: MakeApp, write_md: WriteMd) -> None:
+        target = write_md("real.md", "x")
+        link = target.with_name("alias.md")
+        link.symlink_to(target)
+        app = make_app()
+        app.start([link])
+        assert copy_file_path(app.windows[0]) == str(link)
+
+    @pytest.mark.parametrize(
+        "name",
+        ["a&b.md", "<b>bold</b>.md", "ü 名 🙂.md", "line\nbreak.md", "  spaced  .md"],
+        ids=["ampersand", "html", "unicode", "newline", "spaces"],
+    )
+    def test_copies_unusual_names_literally(self, make_app: MakeApp, write_md: WriteMd, name: str) -> None:
+        path = write_md(name, "x")
+        app = make_app()
+        app.start([path])
+        assert copy_file_path(app.windows[0]) == str(path)
+
+    def test_each_window_copies_its_own_path(self, make_app: MakeApp, write_md: WriteMd) -> None:
+        first, second = write_md("first.md", "1"), write_md("second.md", "2")
+        app = make_app()
+        app.start([first, second])
+        assert [copy_file_path(window) for window in app.windows] == [str(first), str(second)]
+
+    def test_works_in_a_launcher_that_opened_a_file(self, make_app: MakeApp, write_md: WriteMd) -> None:
+        path = write_md("a.md", "a")
+        app = make_app()
+        launcher = app.open_launcher()
+        app.open_path(path, launcher)
+        assert copy_file_path(launcher) == str(path)
+
+    @pytest.mark.parametrize("gone", ["deleted", "moved"])
+    def test_copies_the_opened_path_after_the_file_is_gone(
+        self, make_app: MakeApp, write_md: WriteMd, gone: str
+    ) -> None:
+        path = write_md("a.md", "a")
+        app = make_app()
+        app.start([path])
+        if gone == "deleted":
+            path.unlink()
+        else:
+            path.rename(path.with_name("b.md"))
+        assert copy_file_path(app.windows[0]) == str(path)
 
 
 class TestFullStart:

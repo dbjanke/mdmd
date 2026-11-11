@@ -56,6 +56,9 @@ recent files, and applying settings in one restyles the windows of all of them.
 
 Click a footnote marker to see the note. Click elsewhere or press Esc to close it.
 
+File > Copy File Path copies the document's full path, ready to paste into another
+editor or a terminal.
+
 Markdown normally joins lines that are separated by a single line break into one
 paragraph. If you write notes one line at a time, check View > Show Soft Line
 Breaks to keep those line breaks. The choice applies to every open window and is
